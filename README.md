@@ -7,11 +7,10 @@ Built with [Godot 4.3](https://godotengine.org/download).
 
 ## Stage 1 (what exists now)
 
-- One bay, two ports (Port Haven and Eastpoint), one small boat, steady wind.
+- One bay, two ports (Port Haven and Eastpoint), one small boat.
 - You only steer; the sails trim themselves.
 - A red wedge shows the no-go zone: you cannot sail straight into the wind.
-  Port Haven to Eastpoint is upwind, so you have to zig-zag (tack). The trip
-  back is a fast downwind run.
+  When your destination is upwind you have to zig-zag (tack) towards it.
 - Time runs up to 6x faster on open water and drops to normal when you steer,
   get stuck head to wind, or come near land or your destination.
 - Each port sells one cargo that spoils (pays a premium for a fast passage,
@@ -23,6 +22,11 @@ Built with [Godot 4.3](https://godotengine.org/download).
   shows an estimated speed and time, and turns red if it points too close to
   the wind. Under sail the plan is drawn on the water and the game tracks
   whether you are ahead of or behind it.
+- The wind is different each day in port and shifts during a passage, so a
+  plan made in port needs adjusting at sea.
+- A ship's log records every passage with the course sailed. The course of
+  the best passage on a route is drawn on the chart and can be loaded as the
+  plan with one tap.
 - Profits buy a bigger hold and better sails. Each route records your best
   passage time.
 

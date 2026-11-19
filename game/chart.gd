@@ -10,6 +10,7 @@ const BAR_HEIGHT := 112.0
 const SEA := Color("1f6f9c")
 const LAND_FILL := Color("5d8a4a")
 const GOLD := Color("ffd24a")
+const RECORD := Color("7fe7ff")
 const SLOW_LEG := Color("ffe36b")
 const FAST_LEG := Color("5fe36a")
 const UPWIND_LEG := Color("ff5a4a")
@@ -17,6 +18,7 @@ const LAND_LEG := Color("ff9f1c")
 
 var game
 var summary: Label
+var record_button: Button
 
 
 func setup(game_ref) -> void:
@@ -39,6 +41,8 @@ func setup(game_ref) -> void:
 	summary.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	summary.add_theme_font_size_override("font_size", 20)
 	bar.add_child(summary)
+	record_button = _button("Record", use_record)
+	bar.add_child(record_button)
 	bar.add_child(_button("Undo", undo))
 	bar.add_child(_button("Clear", clear))
 	bar.add_child(_button("Done", _done))
@@ -54,6 +58,7 @@ func _button(text: String, action: Callable) -> Button:
 
 func refresh() -> void:
 	summary.text = game.plan_summary(true)
+	record_button.disabled = game.record_track().is_empty()
 	queue_redraw()
 
 
@@ -67,6 +72,15 @@ func undo() -> void:
 func clear() -> void:
 	game.plan.clear()
 	game.plan_changed()
+	refresh()
+
+
+## Replace the plan with the course of the best passage on this route.
+func use_record() -> void:
+	var record: Array[Vector2] = game.record_track()
+	if record.is_empty():
+		return
+	game.follow_track(record)
 	refresh()
 
 
@@ -132,7 +146,15 @@ func _draw() -> void:
 			var head := centre + blowing_to * 16.0
 			draw_line(centre - blowing_to * 16.0, head, Color(1, 1, 1, 0.4), 2.0)
 			draw_colored_polygon(PackedVector2Array([head + blowing_to * 8.0, head + barb, head - barb]), Color(1, 1, 1, 0.4))
-	draw_string(font, map_rect.position + Vector2(12, 26), "Wind %d kn" % roundi(game.wind_kn), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
+
+
+	# The course of the best passage so far on this route.
+	var record: Array[Vector2] = game.record_track()
+	for i in range(1, record.size()):
+		draw_dashed_line(to_screen(record[i - 1]), to_screen(record[i]), RECORD, 2.0, 8.0)
+	draw_string(font, map_rect.position + Vector2(12, 26), "Wind today: %s" % game.forecast_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
+	if not record.is_empty():
+		draw_string(font, map_rect.position + Vector2(12, 52), "Dashed blue: your record course", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, RECORD)
 
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	var legs: Array[Dictionary] = game.estimate(route)

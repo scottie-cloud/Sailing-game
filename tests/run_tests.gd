@@ -7,6 +7,8 @@ const ShipState = preload("res://sim/ship_state.gd")
 const Trade = preload("res://sim/trade.gd")
 const TimeCompression = preload("res://sim/time_compression.gd")
 const RoutePlan = preload("res://sim/route_plan.gd")
+const Track = preload("res://sim/track.gd")
+const Weather = preload("res://sim/weather.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -37,6 +39,8 @@ func _init() -> void:
 	test_world()
 	test_speed_explanations()
 	test_route_plan()
+	test_track()
+	test_weather()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -117,7 +121,7 @@ func test_ship_motion() -> void:
 
 
 func test_trade() -> void:
-	var par := Trade.par_hours("haven", "eastpoint")
+	var par := 9.0
 	var fast := Trade.sale_price("fish", par * 0.8, par)
 	var on_par := Trade.sale_price("fish", par, par)
 	var slow := Trade.sale_price("fish", par * 2.0, par)
@@ -221,3 +225,66 @@ func test_route_plan() -> void:
 	check(World.segment_crosses_land(haven, eastpoint), "the direct route is flagged as crossing land")
 	check(not World.segment_crosses_land(Vector2(1500, 1200), Vector2(5500, 1200)), "the north channel is clear")
 	check(World.in_bounds(haven) and not World.in_bounds(Vector2(-10, 100)), "bounds check")
+
+
+func test_track() -> void:
+	# A dog-leg with small wobbles along each straight.
+	var sailed: Array[Vector2] = []
+	for i in 11:
+		sailed.append(Vector2(i * 100.0, (i % 2) * 6.0))
+	for i in range(1, 11):
+		sailed.append(Vector2(1000.0 + (i % 2) * 6.0, i * 100.0))
+	var simplified := Track.simplify(sailed, 25.0)
+	check(simplified.size() == 3, "a wobbly dog-leg simplifies to start, corner and end")
+	check(simplified[0] == sailed[0] and simplified[2] == sailed[sailed.size() - 1], "simplifying keeps the start and end")
+	check(simplified[1].distance_to(Vector2(1000, 0)) < 20.0, "simplifying keeps the corner")
+	var marks := Track.to_marks(sailed, 12)
+	check(marks.size() == 1 and marks[0].distance_to(Vector2(1000, 0)) < 20.0, "a dog-leg becomes one mark at the corner")
+
+	var two: Array[Vector2] = [Vector2.ZERO, Vector2(500, 0)]
+	check(Track.simplify(two, 25.0).size() == 2 and Track.to_marks(two, 12).is_empty(), "a straight run has no marks")
+
+	# A long zig-zag has more corners than marks allowed; it is cut down to fit.
+	var zigzag: Array[Vector2] = []
+	for i in 41:
+		zigzag.append(Vector2(i * 150.0, (i % 2) * 300.0 + i * 5.0))
+	var limited := Track.to_marks(zigzag, 12)
+	check(limited.size() <= 12, "marks are limited to the maximum")
+
+
+func test_weather() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 12345
+	var first := Weather.roll(rng)
+	rng.seed = 12345
+	var again := Weather.roll(rng)
+	check(first["from_deg"] == again["from_deg"] and first["kn"] == again["kn"], "the same seed gives the same forecast")
+
+	var in_range := true
+	var directions_differ := false
+	var shifts := false
+	var bounded := true
+	for i in 200:
+		var forecast := Weather.roll(rng)
+		var from_deg: float = forecast["from_deg"]
+		var kn: float = forecast["kn"]
+		var off_prevailing := absf(wrapf(from_deg - Weather.PREVAILING_DEG, -180.0, 180.0))
+		in_range = in_range and off_prevailing <= Weather.DIRECTION_SPREAD_DEG + 0.01 and kn >= Weather.MIN_KN and kn <= Weather.MAX_KN
+		directions_differ = directions_differ or absf(from_deg - float(first["from_deg"])) > 20.0
+		var start := Weather.wind_at(forecast, 0.0)
+		check(near(start["from"], deg_to_rad(from_deg), 0.0001) and near(start["kn"], kn, 0.0001), "the wind on leaving port matches the forecast")
+		for hour in range(1, 13):
+			var later := Weather.wind_at(forecast, hour * 3600.0)
+			var shift := absf(rad_to_deg(wrapf(float(later["from"]) - deg_to_rad(from_deg), -PI, PI)))
+			bounded = bounded and shift <= Weather.MAX_SHIFT_DEG + 0.01
+			bounded = bounded and absf(float(later["kn"]) - kn) <= Weather.MAX_STRENGTH_CHANGE_KN + 0.01
+			shifts = shifts or shift > 5.0
+	check(in_range, "forecasts stay within the allowed direction and strength")
+	check(directions_differ, "forecasts differ from day to day")
+	check(shifts, "the wind shifts during a passage")
+	check(bounded, "wind shifts stay within their limits")
+
+	check(Weather.compass_name(0.0) == "N" and Weather.compass_name(90.0) == "E", "compass names for north and east")
+	check(Weather.compass_name(70.0) == "ENE" and Weather.compass_name(350.0) == "N", "compass names round to the nearest point")
+	check(Weather.describe({"from_deg": 225.0, "kn": 11.0}) == "SW 11 kn", "a forecast reads as direction and strength")
+	check(near(Trade.par_from_estimate(5.0), 5.0 * Trade.PAR_FACTOR), "par is a multiple of the direct estimate")

@@ -91,5 +91,27 @@ func _run() -> void:
 	check(game.money > money_before, "the cargo is sold on arrival")
 	check(game.destination == origin, "the next destination is the port we came from")
 
+	# The passage is in the ship's log, with its course saved as the record.
+	check(game.ship_log.size() == 1, "the passage is written to the log")
+	var entry: Dictionary = game.ship_log[0]
+	check(entry["from"] == origin and entry["to"] == destination, "the log entry names the route")
+	check(entry["record"], "a first passage is a record")
+	check(entry["track"].size() >= 2, "the log entry keeps the course sailed")
+	check(game.record_tracks.has(Trade.route_key(origin, destination)), "the record course is saved for the route")
+	check(game.record_track().is_empty(), "there is no record yet for the return route")
+	game.open_log()
+	await _frames(3)
+	check(game.log_screen.visible and game.log_screen.rows.get_child_count() == 1, "the log screen lists the passage")
+	check(game.log_screen.entry_text(entry).contains("RECORD"), "the log marks the record passage")
+	game.close_log()
+	check(game.port_panel.visible, "closing the log returns to the port screen")
+
+	# Following a logged course turns it into a plan.
+	var course: Array[Vector2] = [dest_pos, Vector2(5000, 1200), Vector2(3500, 1200), World.port_position(origin)]
+	game.follow_track(course)
+	check(game.plan.size() == 2 and game.plan[0].distance_to(Vector2(5000, 1200)) < 5.0, "following a course plans its turning points")
+	check(game.forecast_text() != "", "the port shows a wind forecast")
+	check(game.route_par() > 0.0, "the route has a par time for the day's wind")
+
 	print("smoke: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

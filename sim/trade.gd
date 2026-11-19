@@ -9,8 +9,9 @@ const GOODS := {
 	"wool": {"name": "Wool", "origin": "eastpoint", "perishable": false, "buy": 10, "sell": 13},
 }
 
-## A competent stage 1 passage, in game hours. Haven to Eastpoint is upwind.
-const PAR_HOURS := {"haven>eastpoint": 9.0, "eastpoint>haven": 3.6}
+## Par for a passage is this multiple of the straight-line estimate in the
+## day's forecast wind: room for the island, the tacks and a beginner's helm.
+const PAR_FACTOR := 1.2
 
 const FAST_FRACTION := 0.85
 const SLOW_FRACTION := 1.75
@@ -28,8 +29,8 @@ static func route_key(from_port: String, to_port: String) -> String:
 	return "%s>%s" % [from_port, to_port]
 
 
-static func par_hours(from_port: String, to_port: String) -> float:
-	return PAR_HOURS.get(route_key(from_port, to_port), 5.0)
+static func par_from_estimate(direct_hours: float) -> float:
+	return direct_hours * PAR_FACTOR
 
 
 static func goods_sold_at(port: String) -> Array[String]:

@@ -79,3 +79,51 @@ static func leeway_deg(twa_deg: float) -> float:
 ## Speed made good towards a target bearing.
 static func vmg_kn(speed_kn: float, course: float, target_bearing: float) -> float:
 	return speed_kn * cos(wrapf(target_bearing - course, -PI, PI))
+
+
+## A course this far off the wind can be sailed directly. Leeway means the
+## bow has to point a few degrees closer to the wind than the course.
+static func can_lay(course_twa_deg: float) -> bool:
+	return course_twa_deg >= NO_GO_DEG + leeway_deg(NO_GO_DEG)
+
+
+## The fastest the boat goes on any heading in this wind.
+static func best_speed_kn(wind_kn: float, hull_speed_kn: float, trim: float) -> float:
+	return wind_factor(wind_kn) * hull_speed_kn * trim
+
+
+## Best progress straight upwind when zig-zagging.
+static func best_upwind_vmg_kn(wind_kn: float, hull_speed_kn: float, trim: float) -> float:
+	var best := 0.0
+	for angle in range(int(NO_GO_DEG), 91):
+		var speed := target_speed_kn(float(angle), wind_kn, hull_speed_kn, trim)
+		best = maxf(best, speed * cos(deg_to_rad(float(angle))))
+	return best
+
+
+static func point_of_sail(twa_deg: float) -> String:
+	if twa_deg < NO_GO_DEG:
+		return "Head to wind"
+	if twa_deg < 55.0:
+		return "Close-hauled"
+	if twa_deg < 80.0:
+		return "Close reach"
+	if twa_deg < 105.0:
+		return "Beam reach"
+	if twa_deg < 150.0:
+		return "Broad reach"
+	return "Running"
+
+
+static func point_of_sail_tip(twa_deg: float) -> String:
+	if twa_deg < NO_GO_DEG:
+		return "Too close to the wind: the sail can't fill. Turn away."
+	if twa_deg < 55.0:
+		return "As close to the wind as she goes. Slow, but it gains ground upwind."
+	if twa_deg < 80.0:
+		return "Good speed while still working upwind."
+	if twa_deg < 105.0:
+		return "Wind on the side: fast and easy."
+	if twa_deg < 150.0:
+		return "Wind over the back corner: her fastest heading."
+	return "Wind dead behind: steady, but slower than a broad reach."

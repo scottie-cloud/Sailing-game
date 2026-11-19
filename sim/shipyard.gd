@@ -5,7 +5,7 @@ extends RefCounted
 const SHIPS := {
 	"cutter": {"name": "Cutter", "price": 0, "hold": 10, "hull_speed": 7.0, "turn": 1.0, "strain_limit": 1200.0, "size": 1.0,
 		"blurb": "One mast, quick to turn. A boat for learning the bay."},
-	"ketch": {"name": "Ketch", "price": 700, "hold": 24, "hull_speed": 8.0, "turn": 0.8, "strain_limit": 1500.0, "size": 1.25,
+	"ketch": {"name": "Ketch", "price": 700, "hold": 28, "hull_speed": 8.0, "turn": 0.8, "strain_limit": 1500.0, "size": 1.25,
 		"blurb": "Two masts and more than twice the hold. A working coaster."},
 	"schooner": {"name": "Schooner", "price": 2200, "hold": 45, "hull_speed": 9.5, "turn": 0.65, "strain_limit": 1800.0, "size": 1.5,
 		"blurb": "Fast and roomy, but slow in stays: plan her turns."},

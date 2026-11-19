@@ -40,6 +40,8 @@ func _run() -> void:
 	var scene: PackedScene = load("res://game/main.tscn")
 	game = scene.instantiate()
 	root.add_child(game)
+	# Let the game finish starting up before driving it.
+	await _settle()
 	game.rng.seed = 20
 	game._enter_port("melbourne", "Welcome aboard. Buy cargo here, choose where to take it and sell it there.\nFresh cargo pays more the faster you arrive.")
 	await _shot("01_port")

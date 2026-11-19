@@ -86,6 +86,26 @@ func _run() -> void:
 	await _settle(10)
 	await _shot("12_sailing_near_land")
 
+	# The view from the deck: close to a shore, in open water, and in a squall.
+	game._toggle_view()
+	game.ship.position = World.port_position("mornington") + Vector2(150, 0)
+	game.ship.heading = deg_to_rad(80.0)
+	await _settle(12)
+	await _shot("15_deck_near_land")
+	game.ship.position = Vector2(10500, 7500)
+	game.ship.heading = deg_to_rad(250.0)
+	await _settle(12)
+	await _shot("16_deck_open_water")
+	var hours: float = game.passage_seconds / 3600.0
+	game.forecast["squalls"] = [{"delay_hours": hours - 1.667, "offset": 0.0, "extra_kn": 10.0, "radius": 2400.0}]
+	game.ship.position = World.SIZE / 2.0
+	await _settle(12)
+	await _shot("17_deck_in_squall")
+	game._toggle_view()
+	await _settle(6)
+	await _shot("18_top_down_in_squall")
+	game.forecast["squalls"] = []
+
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)
 	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 100.0

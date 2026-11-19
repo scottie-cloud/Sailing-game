@@ -124,7 +124,7 @@ static func point_of_sail_tip(twa_deg: float) -> String:
 	if twa_deg < NO_GO_DEG:
 		return "Too close to the wind: the sail can't fill. Turn away."
 	if twa_deg < 55.0:
-		return "As close to the wind as she goes. Slow, but it gains ground upwind."
+		return "As close to the wind as she goes: slow but gaining."
 	if twa_deg < 80.0:
 		return "Good speed while still working upwind."
 	if twa_deg < 105.0:

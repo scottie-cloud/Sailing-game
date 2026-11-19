@@ -1,17 +1,22 @@
 extends Node2D
-## Stage 1 prototype: steer a small boat between two ports, sell cargo,
-## buy upgrades. Everything visual is drawn in code; the rules live in sim/.
+## Stage 1 prototype: plan a route, steer a small boat between two ports,
+## sell cargo, buy upgrades. Visuals are drawn in code; the rules live in sim/.
 
 const SailingModel = preload("res://sim/sailing_model.gd")
 const ShipState = preload("res://sim/ship_state.gd")
 const Trade = preload("res://sim/trade.gd")
 const TimeCompression = preload("res://sim/time_compression.gd")
+const RoutePlan = preload("res://sim/route_plan.gd")
 const World = preload("res://game/world.gd")
+const Chart = preload("res://game/chart.gd")
 
 const SAVE_PATH := "user://save.json"
 ## At 1x, one real second is one game minute.
 const GAME_SECONDS_PER_REAL_SECOND := 60.0
 const DOCK_RADIUS := 170.0
+## How close the ship has to pass a planned mark to count as rounding it.
+const MARK_RADIUS := 200.0
+const MAX_MARKS := 12
 const BASE_HULL_SPEED_KN := 7.0
 const AGROUND_PENALTY_S := 1800.0
 const STARTING_MONEY := 100
@@ -38,6 +43,13 @@ var hold_level := 0
 var sail_level := 0
 var best_times := {}
 
+## Saved route plans: route key -> Array of Vector2 marks.
+var plans := {}
+## Marks for the current route, in sailing order. The destination follows the last one.
+var plan: Array[Vector2] = []
+var next_mark := 0
+var planned_hours := 0.0
+
 var land_ahead := false
 var last_safe_position := Vector2.ZERO
 var anim_time := 0.0
@@ -46,6 +58,7 @@ var notice_until := 0.0
 
 var camera: Camera2D
 var overlay: Overlay
+var chart: Chart
 var status_label: Label
 var passage_label: Label
 var hint_panel: PanelContainer
@@ -56,6 +69,7 @@ var port_panel: PanelContainer
 var port_title: Label
 var port_report: Label
 var port_money: Label
+var plan_label: Label
 var goods_box: VBoxContainer
 var goods_count_labels := {}
 var hold_button: Button
@@ -84,6 +98,102 @@ func _process(delta: float) -> void:
 	overlay.queue_redraw()
 
 
+# --- Route planning ----------------------------------------------------------
+
+func hull_speed() -> float:
+	return BASE_HULL_SPEED_KN * Trade.sail_bonus(sail_level)
+
+
+func best_speed() -> float:
+	return SailingModel.best_speed_kn(wind_kn, hull_speed(), ship.trim_efficiency)
+
+
+## The points still to sail through: start, the marks from from_mark on, the destination.
+func route_points(start: Vector2, from_mark: int) -> Array[Vector2]:
+	var points: Array[Vector2] = [start]
+	for i in range(from_mark, plan.size()):
+		points.append(plan[i])
+	points.append(World.port_position(destination))
+	return points
+
+
+func estimate(points: Array[Vector2]) -> Array[Dictionary]:
+	var legs := RoutePlan.legs(points, wind_from, wind_kn, hull_speed(), ship.trim_efficiency)
+	for leg in legs:
+		leg["crosses_land"] = World.segment_crosses_land(leg["from"], leg["to"])
+	return legs
+
+
+func plan_hours() -> float:
+	return RoutePlan.total_hours(estimate(route_points(World.port_position(current_port), 0)))
+
+
+## The mark being steered for, or the destination once all marks are rounded.
+func target_point() -> Vector2:
+	if next_mark < plan.size():
+		return plan[next_mark]
+	return World.port_position(destination)
+
+
+func target_name() -> String:
+	if next_mark < plan.size():
+		return "mark %d" % (next_mark + 1)
+	return World.port_name(destination)
+
+
+func format_hours(hours: float) -> String:
+	return _format_time(hours * 3600.0)
+
+
+func plan_summary(detailed: bool) -> String:
+	var legs := estimate(route_points(World.port_position(current_port), 0))
+	var upwind := 0
+	var blocked := 0
+	for leg in legs:
+		if leg["crosses_land"]:
+			blocked += 1
+		elif not leg["direct"]:
+			upwind += 1
+	var marks := "straight line" if plan.is_empty() else ("%d mark%s" % [plan.size(), "" if plan.size() == 1 else "s"])
+	var text := "Route plan: %s, about %s." % [marks, format_hours(RoutePlan.total_hours(legs))]
+	if blocked > 0:
+		text += " %d leg%s land (orange)." % [blocked, " crosses" if blocked == 1 else "s cross"]
+	if upwind > 0:
+		text += " %d leg%s too close to the wind (red), so you would have to zig-zag there." % [upwind, " points" if upwind == 1 else "s point"]
+	if detailed:
+		var par := Trade.par_hours(current_port, destination)
+		text += " Fresh cargo earns a premium under %s." % format_hours(Trade.premium_hours(par))
+		if plan.is_empty():
+			text += " Tap the water to add marks."
+	return text
+
+
+func plan_changed() -> void:
+	plans[Trade.route_key(current_port, destination)] = plan.duplicate()
+	_refresh_port_panel()
+	_save_game()
+
+
+func open_chart() -> void:
+	port_panel.visible = false
+	chart.visible = true
+	chart.refresh()
+
+
+func close_chart() -> void:
+	chart.visible = false
+	port_panel.visible = true
+	_refresh_port_panel()
+
+
+func _stored_plan(key: String) -> Array[Vector2]:
+	var marks: Array[Vector2] = []
+	var stored: Array = plans.get(key, [])
+	for mark: Vector2 in stored:
+		marks.append(mark)
+	return marks
+
+
 # --- Sailing -----------------------------------------------------------------
 
 func _rudder_input() -> float:
@@ -97,6 +207,19 @@ func _rudder_input() -> float:
 
 func _in_no_go() -> bool:
 	return SailingModel.in_no_go(ship.true_wind_angle_deg(wind_from))
+
+
+func _advance_marks() -> void:
+	var dest_pos := World.port_position(destination)
+	while next_mark < plan.size():
+		var mark := plan[next_mark]
+		var after := plan[next_mark + 1] if next_mark + 1 < plan.size() else dest_pos
+		var rounded := ship.position.distance_to(mark) < MARK_RADIUS
+		# Already nearer the following point than the mark is: count it as passed.
+		var passed := ship.position.distance_to(after) < mark.distance_to(after)
+		if not (rounded or passed):
+			break
+		next_mark += 1
 
 
 func _sail(delta: float) -> void:
@@ -116,7 +239,9 @@ func _sail(delta: float) -> void:
 			land_ahead = true
 			break
 
-	var hazard := minf(World.distance_to_land(ship.position), ship.position.distance_to(dest_pos))
+	# Land, the destination and the next mark are all places a decision is due.
+	var hazard := minf(World.distance_to_land(ship.position), ship.position.distance_to(target_point()))
+	hazard = minf(hazard, to_destination)
 	var target := TimeCompression.target_scale(rudder != 0.0, in_irons, land_ahead, hazard)
 	time_scale = TimeCompression.approach(time_scale, target, delta)
 
@@ -133,14 +258,17 @@ func _sail(delta: float) -> void:
 	else:
 		last_safe_position = ship.position
 
+	_advance_marks()
 	if ship.position.distance_to(dest_pos) < DOCK_RADIUS:
 		_arrive()
 
 
 func _set_sail() -> void:
 	var from_pos := World.port_position(current_port)
-	var bearing := SailingModel.vector_to_bearing(World.port_position(destination) - from_pos)
-	# If the destination is straight upwind, start on the nearer tack instead.
+	next_mark = 0
+	planned_hours = plan_hours()
+	var bearing := SailingModel.vector_to_bearing(target_point() - from_pos)
+	# If the first leg is straight upwind, start on the nearer tack instead.
 	var off_wind := wrapf(bearing - wind_from, -PI, PI)
 	if absf(off_wind) < deg_to_rad(55.0):
 		var side := 1.0 if off_wind >= 0.0 else -1.0
@@ -149,13 +277,14 @@ func _set_sail() -> void:
 	ship.position = from_pos
 	ship.heading = bearing
 	ship.speed_kn = 2.0
-	ship.hull_speed_kn = BASE_HULL_SPEED_KN * Trade.sail_bonus(sail_level)
+	ship.hull_speed_kn = hull_speed()
 	last_safe_position = from_pos
 	passage_seconds = 0.0
 	time_scale = 1.0
 	notice_until = 0.0
 	mode = Mode.SAILING
 	port_panel.visible = false
+	chart.visible = false
 	left_button.visible = true
 	right_button.visible = true
 
@@ -171,6 +300,12 @@ func _arrive() -> void:
 		best_times[key] = hours
 		arrival += " New best passage!"
 	lines.append(arrival)
+	var difference := absf(hours - planned_hours)
+	if difference < 0.1:
+		lines.append("Right on your plan of %s." % format_hours(planned_hours))
+	else:
+		lines.append("Your plan said %s: you were %s %s." % [format_hours(planned_hours), format_hours(difference),
+			"faster" if hours < planned_hours else "slower"])
 
 	var total := 0
 	for good_id: String in cargo:
@@ -205,6 +340,8 @@ func _enter_port(port: String, report: String) -> void:
 	current_port = port
 	destination = World.other_port(port)
 	cargo = {}
+	plan = _stored_plan(Trade.route_key(current_port, destination))
+	next_mark = 0
 	ship.position = World.port_position(port)
 	ship.speed_kn = 0.0
 	time_scale = 1.0
@@ -217,6 +354,7 @@ func _enter_port(port: String, report: String) -> void:
 	_rebuild_goods_rows()
 	_refresh_port_panel()
 	port_panel.visible = true
+	chart.visible = false
 	left_button.visible = false
 	right_button.visible = false
 	_save_game()
@@ -265,6 +403,7 @@ func _upgrade_text(label: String, kind: String, level: int) -> String:
 
 func _refresh_port_panel() -> void:
 	port_money.text = "Money: $%d     Hold: %d / %d" % [money, _cargo_units(), Trade.hold_capacity(hold_level)]
+	plan_label.text = plan_summary(false)
 	for good_id: String in goods_count_labels:
 		var count_label: Label = goods_count_labels[good_id]
 		count_label.text = str(int(cargo.get(good_id, 0)))
@@ -348,10 +487,11 @@ func _build_ui() -> void:
 
 	passage_label = Label.new()
 	passage_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	passage_label.offset_left = -620
+	passage_label.offset_left = -820
 	passage_label.offset_right = -20
 	passage_label.offset_top = 12
 	passage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	passage_label.add_theme_font_size_override("font_size", 20)
 	root.add_child(passage_label)
 
 	hint_panel = PanelContainer.new()
@@ -388,22 +528,23 @@ func _build_ui() -> void:
 	port_panel.set_anchors_preset(Control.PRESET_CENTER)
 	port_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	port_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	port_panel.custom_minimum_size = Vector2(820, 0)
+	port_panel.custom_minimum_size = Vector2(860, 0)
 	root.add_child(port_panel)
 	var margin := MarginContainer.new()
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		margin.add_theme_constant_override(side, 22)
+		margin.add_theme_constant_override(side, 20)
 	port_panel.add_child(margin)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
+	box.add_theme_constant_override("separation", 10)
 	margin.add_child(box)
 
 	port_title = Label.new()
-	port_title.add_theme_font_size_override("font_size", 36)
+	port_title.add_theme_font_size_override("font_size", 34)
 	box.add_child(port_title)
 	port_report = Label.new()
 	port_report.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	port_report.custom_minimum_size = Vector2(770, 0)
+	port_report.custom_minimum_size = Vector2(810, 0)
+	port_report.add_theme_font_size_override("font_size", 20)
 	box.add_child(port_report)
 	box.add_child(HSeparator.new())
 	port_money = Label.new()
@@ -412,6 +553,17 @@ func _build_ui() -> void:
 	goods_box.add_theme_constant_override("separation", 8)
 	box.add_child(goods_box)
 	box.add_child(HSeparator.new())
+
+	var plan_row := HBoxContainer.new()
+	plan_row.add_theme_constant_override("separation", 12)
+	plan_label = Label.new()
+	plan_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	plan_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	plan_label.add_theme_font_size_override("font_size", 20)
+	plan_row.add_child(plan_label)
+	plan_row.add_child(_make_button("Plan route", open_chart, 170))
+	box.add_child(plan_row)
+
 	var upgrades := HBoxContainer.new()
 	upgrades.add_theme_constant_override("separation", 12)
 	hold_button = _make_button("", _buy_upgrade.bind("hold"), 0)
@@ -422,8 +574,13 @@ func _build_ui() -> void:
 	upgrades.add_child(sails_button)
 	box.add_child(upgrades)
 	sail_button = _make_button("", _set_sail, 0)
-	sail_button.custom_minimum_size = Vector2(0, 72)
+	sail_button.custom_minimum_size = Vector2(0, 64)
 	box.add_child(sail_button)
+
+	chart = Chart.new()
+	chart.setup(self)
+	chart.visible = false
+	root.add_child(chart)
 
 
 func _show_notice(text: String, seconds: float) -> void:
@@ -440,12 +597,11 @@ func _current_hint() -> String:
 		return "Land ahead! Turn away."
 	if _in_no_go():
 		return "Sails flapping! You can't sail straight into the wind. Steer out of the red zone."
-	var dest_name := World.port_name(destination)
 	if passage_seconds < 1200.0:
-		return "Hold < or > to steer. The gold arrow points to %s." % dest_name
-	var to_dest := SailingModel.vector_to_bearing(World.port_position(destination) - ship.position)
-	if SailingModel.in_no_go(SailingModel.true_wind_angle_deg(to_dest, wind_from)):
-		return "%s is upwind. Zig-zag towards it, keeping just outside the red zone." % dest_name
+		return "Hold < or > to steer. The gold arrow points to %s." % target_name()
+	var to_target := SailingModel.vector_to_bearing(target_point() - ship.position)
+	if not SailingModel.can_lay(SailingModel.true_wind_angle_deg(to_target, wind_from)):
+		return "%s is upwind. Zig-zag towards it, keeping just outside the red zone." % target_name().capitalize()
 	return ""
 
 
@@ -469,7 +625,10 @@ func _update_hud() -> void:
 			parts.append("%d %s" % [cargo[good_id], Trade.GOODS[good_id]["name"]])
 	var cargo_text := ", ".join(parts) if not parts.is_empty() else "empty"
 	status_label.text = "$%d   Cargo: %s" % [money, cargo_text]
-	passage_label.text = "%.1f kn   Passage %s   Time x%d" % [ship.speed_kn, _format_time(passage_seconds), roundi(time_scale)]
+	var remaining := RoutePlan.total_hours(estimate(route_points(ship.position, next_mark)))
+	var projected := passage_seconds / 3600.0 + remaining
+	passage_label.text = "Sailed %s   On course for %s (plan %s)   Time x%d" % [
+		_format_time(passage_seconds), format_hours(projected), format_hours(planned_hours), roundi(time_scale)]
 
 
 # --- Drawing -----------------------------------------------------------------
@@ -483,6 +642,7 @@ func _draw() -> void:
 		draw_polyline(outline, LAND_EDGE, 10.0)
 	_draw_ports()
 	if mode == Mode.SAILING:
+		_draw_plan()
 		_draw_ship()
 
 
@@ -511,6 +671,21 @@ func _draw_ports() -> void:
 		draw_string(font, p + Vector2(-120, -44), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 240, 30, Color.WHITE)
 
 
+## The planned route on the water: a dashed line through numbered marks.
+func _draw_plan() -> void:
+	if plan.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	var points := route_points(World.port_position(current_port), 0)
+	for i in range(1, points.size()):
+		draw_dashed_line(points[i - 1], points[i], Color(1, 1, 1, 0.35), 4.0, 24.0)
+	for i in plan.size():
+		var colour := GOLD if i == next_mark else Color(1, 1, 1, 0.3 if i < next_mark else 0.7)
+		draw_arc(plan[i], MARK_RADIUS, 0.0, TAU, 48, Color(colour, colour.a * 0.5), 3.0)
+		draw_circle(plan[i], 20.0, colour)
+		draw_string(font, plan[i] + Vector2(-20, 9), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 40, 26, Color.BLACK)
+
+
 func _draw_ship() -> void:
 	var side_angle := SailingModel.signed_wind_angle(ship.heading, wind_from)
 	var twa := absf(rad_to_deg(side_angle))
@@ -523,15 +698,15 @@ func _draw_ship() -> void:
 		wedge.append(ship.position + SailingModel.bearing_to_vector(wind_from + spread) * 180.0)
 	draw_colored_polygon(wedge, Color(0.9, 0.15, 0.1, 0.45 if no_go else 0.2))
 
-	# Gold arrow towards the destination.
-	var to_dest := World.port_position(destination) - ship.position
-	var direction := to_dest.normalized()
+	# Gold arrow towards the next mark, or the destination.
+	var to_target := target_point() - ship.position
+	var direction := to_target.normalized()
 	var tip := ship.position + direction * 250.0
 	var base := ship.position + direction * 215.0
 	var wing := direction.orthogonal() * 16.0
 	draw_colored_polygon(PackedVector2Array([tip, base + wing, base - wing]), GOLD)
 	draw_string(ThemeDB.fallback_font, tip + direction * 34.0 + Vector2(-60, 8),
-		"%.1f nm" % (to_dest.length() / ShipState.PX_PER_NM), HORIZONTAL_ALIGNMENT_CENTER, 120, 22, GOLD)
+		"%.1f nm" % (to_target.length() / ShipState.PX_PER_NM), HORIZONTAL_ALIGNMENT_CENTER, 120, 22, GOLD)
 
 	draw_set_transform(ship.position, ship.heading, Vector2.ONE)
 	var hull := PackedVector2Array([Vector2(0, -36), Vector2(11, -14), Vector2(12, 18), Vector2(7, 30),
@@ -550,7 +725,7 @@ func _draw_ship() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## Screen-space extras: wind dial and minimap.
+## Screen-space extras: wind dial, minimap and the speed panel.
 class Overlay extends Control:
 	var game
 
@@ -558,7 +733,11 @@ class Overlay extends Control:
 		if not game.is_sailing():
 			return
 		var font := ThemeDB.fallback_font
+		_draw_wind_dial(font)
+		_draw_minimap()
+		_draw_speed_panel(font)
 
+	func _draw_wind_dial(font: Font) -> void:
 		var centre := Vector2(84, 128)
 		draw_circle(centre, 56.0, Color(0, 0, 0, 0.35))
 		var blowing_to: Vector2 = SailingModel.bearing_to_vector(game.wind_from + PI)
@@ -568,6 +747,7 @@ class Overlay extends Control:
 		draw_colored_polygon(PackedVector2Array([head + blowing_to * 12.0, head - blowing_to * 8.0 + barb, head - blowing_to * 8.0 - barb]), Color.WHITE)
 		draw_string(font, Vector2(14, 214), "Wind %d kn" % roundi(game.wind_kn), HORIZONTAL_ALIGNMENT_CENTER, 140, 22, Color.WHITE)
 
+	func _draw_minimap() -> void:
 		var map_scale := 0.04
 		var map_size: Vector2 = World.SIZE * map_scale
 		var origin := Vector2(size.x - map_size.x - 20.0, 56.0)
@@ -578,14 +758,88 @@ class Overlay extends Control:
 				var q: Vector2 = origin + point * map_scale
 				points.append(Vector2(clampf(q.x, origin.x, origin.x + map_size.x), clampf(q.y, origin.y, origin.y + map_size.y)))
 			draw_colored_polygon(points, LAND_FILL)
+		var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
+		if route.size() > 2:
+			for i in range(1, route.size()):
+				draw_line(origin + route[i - 1] * map_scale, origin + route[i] * map_scale, Color(1, 1, 1, 0.6), 1.5)
 		for port: String in World.PORTS:
 			var colour := GOLD if port == game.destination else Color.WHITE
 			draw_circle(origin + World.port_position(port) * map_scale, 5.0, colour)
+		var target: Vector2 = game.target_point()
+		draw_circle(origin + target * map_scale, 4.0, GOLD)
 		var ship_at: Vector2 = origin + game.ship.position * map_scale
 		var bow: Vector2 = SailingModel.bearing_to_vector(game.ship.heading)
 		draw_line(ship_at, ship_at + bow * 14.0, Color.WHITE, 2.0)
 		draw_circle(ship_at, 4.0, Color("ff5a4a"))
 		draw_rect(Rect2(origin, map_size), Color(1, 1, 1, 0.6), false, 2.0)
+
+	## Speed now, what this heading is worth, and why.
+	func _draw_speed_panel(font: Font) -> void:
+		var panel := Rect2(size.x / 2.0 - 320.0, size.y - 200.0, 640.0, 190.0)
+		draw_rect(panel, Color(0, 0, 0, 0.5))
+
+		var heading: float = game.ship.heading
+		var wind_from: float = game.wind_from
+		var twa: float = SailingModel.true_wind_angle_deg(heading, wind_from)
+		var hull: float = game.ship.hull_speed_kn
+		var trim: float = game.ship.trim_efficiency
+		var best: float = SailingModel.best_speed_kn(game.wind_kn, hull, trim)
+		var worth: float = SailingModel.target_speed_kn(twa, game.wind_kn, hull, trim)
+		var speed: float = game.ship.speed_kn
+
+		# Speed dial: how fast she goes on every heading. The further the
+		# curve is from the centre, the faster that direction is.
+		var centre := panel.position + Vector2(96, 96)
+		var radius := 78.0
+		draw_circle(centre, radius, Color(1, 1, 1, 0.08))
+		var wedge := PackedVector2Array([centre])
+		for i in 9:
+			var spread := deg_to_rad(lerpf(-SailingModel.NO_GO_DEG, SailingModel.NO_GO_DEG, i / 8.0))
+			wedge.append(centre + SailingModel.bearing_to_vector(wind_from + spread) * radius)
+		draw_colored_polygon(wedge, Color(0.9, 0.15, 0.1, 0.35))
+		var curve := PackedVector2Array()
+		for step in 73:
+			var bearing := deg_to_rad(step * 5.0)
+			var fraction: float = SailingModel.polar_fraction(SailingModel.true_wind_angle_deg(bearing, wind_from))
+			curve.append(centre + SailingModel.bearing_to_vector(bearing) * radius * fraction)
+		draw_polyline(curve, Color(0.6, 0.9, 1.0), 2.5)
+		var to_target: Vector2 = game.target_point() - game.ship.position
+		draw_circle(centre + to_target.normalized() * radius, 6.0, GOLD)
+		var bow: Vector2 = SailingModel.bearing_to_vector(heading)
+		draw_line(centre, centre + bow * radius, Color(1, 1, 1, 0.35), 2.0)
+		draw_circle(centre + bow * radius * SailingModel.polar_fraction(twa), 7.0, Color.WHITE)
+
+		var x := panel.position.x + 196.0
+		var y := panel.position.y
+		draw_string(font, Vector2(x, y + 46.0), "%.1f kn" % speed, HORIZONTAL_ALIGNMENT_LEFT, -1, 42, Color.WHITE)
+		# Bar: speed now against her best; the tick is what this heading is worth.
+		var bar := Rect2(x + 160.0, y + 22.0, 264.0, 16.0)
+		draw_rect(bar, Color(1, 1, 1, 0.15))
+		var fill := bar
+		fill.size.x = bar.size.x * clampf(speed / best, 0.0, 1.0)
+		draw_rect(fill, Color(0.37, 0.89, 0.42))
+		var tick_x := bar.position.x + bar.size.x * clampf(worth / best, 0.0, 1.0)
+		draw_line(Vector2(tick_x, bar.position.y - 5.0), Vector2(tick_x, bar.end.y + 5.0), Color.WHITE, 3.0)
+
+		draw_string(font, Vector2(x, y + 78.0), "%s: wind %d° off the bow" % [SailingModel.point_of_sail(twa), roundi(twa)],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+		draw_string(font, Vector2(x, y + 106.0), "This heading is worth %.1f kn (her best is %.1f)" % [worth, best],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
+
+		var course: float = SailingModel.vector_to_bearing(game.ship.velocity) if speed > 0.05 else heading
+		var made_good: float = SailingModel.vmg_kn(speed, course, SailingModel.vector_to_bearing(to_target))
+		var progress := "Towards %s: %.1f kn" % [game.target_name(), made_good]
+		if made_good < 0.0:
+			progress = "Moving away from %s" % game.target_name()
+		draw_string(font, Vector2(x, y + 134.0), progress, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, GOLD)
+
+		var tip: String = SailingModel.point_of_sail_tip(twa)
+		if not SailingModel.in_no_go(twa):
+			if speed < worth * 0.8:
+				tip = "Picking up speed. Every turn costs some, so turn only when you need to."
+			elif speed > worth * 1.15:
+				tip = "Slowing down: this heading is worth less than the last one."
+		draw_string(font, Vector2(x, y + 164.0), tip, HORIZONTAL_ALIGNMENT_LEFT, 430, 17, Color(1, 1, 1, 0.8))
 
 
 # --- Saving ------------------------------------------------------------------
@@ -594,12 +848,20 @@ func _save_game() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
 		return
+	var saved_plans := {}
+	for key: String in plans:
+		var marks: Array = []
+		var stored: Array = plans[key]
+		for mark: Vector2 in stored:
+			marks.append([mark.x, mark.y])
+		saved_plans[key] = marks
 	file.store_string(JSON.stringify({
 		"money": money,
 		"port": current_port,
 		"hold_level": hold_level,
 		"sail_level": sail_level,
 		"best_times": best_times,
+		"plans": saved_plans,
 	}))
 
 
@@ -617,3 +879,16 @@ func _load_game() -> void:
 	var times: Variant = data.get("best_times", {})
 	if typeof(times) == TYPE_DICTIONARY:
 		best_times = times
+	var saved_plans: Variant = data.get("plans", {})
+	if typeof(saved_plans) == TYPE_DICTIONARY:
+		for key: String in saved_plans:
+			var marks: Array = []
+			var entries: Variant = saved_plans[key]
+			if typeof(entries) != TYPE_ARRAY:
+				continue
+			for entry: Variant in entries:
+				if typeof(entry) == TYPE_ARRAY and entry.size() == 2:
+					var mark := Vector2(float(entry[0]), float(entry[1]))
+					if World.in_bounds(mark) and not World.is_land(mark) and marks.size() < MAX_MARKS:
+						marks.append(mark)
+			plans[key] = marks

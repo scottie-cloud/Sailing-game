@@ -6,6 +6,7 @@ const SailingModel = preload("res://sim/sailing_model.gd")
 const ShipState = preload("res://sim/ship_state.gd")
 const Trade = preload("res://sim/trade.gd")
 const TimeCompression = preload("res://sim/time_compression.gd")
+const RoutePlan = preload("res://sim/route_plan.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -34,6 +35,8 @@ func _init() -> void:
 	test_trade()
 	test_time_compression()
 	test_world()
+	test_speed_explanations()
+	test_route_plan()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -164,3 +167,57 @@ func test_world() -> void:
 	check(SailingModel.in_no_go(SailingModel.true_wind_angle_deg(outward, wind_from)), "Haven to Eastpoint is upwind, so it needs tacking")
 	var homeward := SailingModel.vector_to_bearing(haven - eastpoint)
 	check(SailingModel.true_wind_angle_deg(homeward, wind_from) > 120.0, "Eastpoint to Haven is a downwind run")
+
+
+func test_speed_explanations() -> void:
+	check(SailingModel.point_of_sail(10.0) == "Head to wind", "pointing at the wind is named head to wind")
+	check(SailingModel.point_of_sail(45.0) == "Close-hauled", "45 degrees is close-hauled")
+	check(SailingModel.point_of_sail(90.0) == "Beam reach", "90 degrees is a beam reach")
+	check(SailingModel.point_of_sail(130.0) == "Broad reach", "130 degrees is a broad reach")
+	check(SailingModel.point_of_sail(175.0) == "Running", "175 degrees is running")
+	check(SailingModel.point_of_sail_tip(90.0) != SailingModel.point_of_sail_tip(175.0), "each point of sail has its own tip")
+	var best := SailingModel.best_speed_kn(12.0, 7.0, 0.85)
+	check(near(best, SailingModel.target_speed_kn(120.0, 12.0, 7.0, 0.85)), "best speed is the broad reach speed")
+	var vmg := SailingModel.best_upwind_vmg_kn(12.0, 7.0, 0.85)
+	check(vmg > 0.0 and vmg < SailingModel.target_speed_kn(60.0, 12.0, 7.0, 0.85), "upwind progress is slower than boat speed")
+	check(not SailingModel.can_lay(42.0), "a course just outside the no-go zone still cannot be laid because of leeway")
+	check(SailingModel.can_lay(50.0), "a course 50 degrees off the wind can be laid")
+	check(Trade.premium_hours(9.0) > 9.0 * Trade.FAST_FRACTION and Trade.premium_hours(9.0) < 9.0 * Trade.SLOW_FRACTION, "premium deadline sits between fast and slow")
+	check(Trade.freshness_multiplier(Trade.premium_hours(9.0) - 0.01, 9.0) >= 1.3, "arriving inside the premium deadline earns the premium")
+
+
+func test_route_plan() -> void:
+	var wind_from := deg_to_rad(World.WIND_FROM_DEG)
+	var start := Vector2(1000, 1000)
+	# 4 nautical miles on a beam reach.
+	var across := SailingModel.bearing_to_vector(wind_from + PI / 2.0) * 1600.0
+	var reach := RoutePlan.leg(start, start + across, wind_from, 12.0, 7.0, 0.85)
+	check(near(reach["distance_nm"], 4.0, 0.01), "leg distance is in nautical miles")
+	check(reach["direct"], "a beam reach leg can be sailed directly")
+	check(near(reach["hours"], 4.0 / float(reach["speed_kn"]), 0.001), "leg time is distance over speed")
+
+	# The same distance straight upwind has to be zig-zagged and takes longer.
+	var upwind_offset := SailingModel.bearing_to_vector(wind_from) * 1600.0
+	var beat := RoutePlan.leg(start, start + upwind_offset, wind_from, 12.0, 7.0, 0.85)
+	check(not beat["direct"], "a leg straight upwind cannot be sailed directly")
+	check(float(beat["hours"]) > float(reach["hours"]) * 2.0, "beating upwind takes much longer than reaching")
+
+	# Sailing the zig-zag as two planned legs should roughly match the estimate.
+	var tack_angle := deg_to_rad(55.0)
+	var half := 800.0 / cos(tack_angle)
+	var corner := start + SailingModel.bearing_to_vector(wind_from + tack_angle) * half
+	var points: Array[Vector2] = [start, corner, start + upwind_offset]
+	var zigzag := RoutePlan.legs(points, wind_from, 12.0, 7.0, 0.85)
+	check(zigzag.size() == 2 and zigzag[0]["direct"] and zigzag[1]["direct"], "a planned zig-zag is two sailable legs")
+	var planned := RoutePlan.total_hours(zigzag)
+	check(absf(planned - float(beat["hours"])) < float(beat["hours"]) * 0.35, "planned zig-zag and the upwind estimate roughly agree")
+
+	var faster := RoutePlan.leg(start, start + across, wind_from, 12.0, 7.0 * Trade.sail_bonus(2), 0.85)
+	check(float(faster["hours"]) < float(reach["hours"]), "better sails shorten the estimate")
+	check(near(RoutePlan.leg(start, start, wind_from, 12.0, 7.0, 0.85)["hours"], 0.0), "a zero-length leg takes no time")
+
+	var haven := World.port_position("haven")
+	var eastpoint := World.port_position("eastpoint")
+	check(World.segment_crosses_land(haven, eastpoint), "the direct route is flagged as crossing land")
+	check(not World.segment_crosses_land(Vector2(1500, 1200), Vector2(5500, 1200)), "the north channel is clear")
+	check(World.in_bounds(haven) and not World.in_bounds(Vector2(-10, 100)), "bounds check")

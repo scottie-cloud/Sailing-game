@@ -69,3 +69,8 @@ static func upgrade_cost(kind: String, level: int) -> int:
 		return -1
 	var base: float = UPGRADE_BASE_COST[kind]
 	return roundi(base * pow(1.6, level))
+
+
+## Arrive inside this many hours and perishable cargo still earns a premium.
+static func premium_hours(par: float) -> float:
+	return par * lerpf(FAST_FRACTION, SLOW_FRACTION, 0.2)

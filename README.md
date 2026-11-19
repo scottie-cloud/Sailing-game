@@ -16,6 +16,13 @@ Built with [Godot 4.3](https://godotengine.org/download).
   get stuck head to wind, or come near land or your destination.
 - Each port sells one cargo that spoils (pays a premium for a fast passage,
   sells at a loss after a slow one) and one that keeps (small steady profit).
+- A speed panel shows speed now, what the current heading is worth, the
+  point of sail, progress towards the next mark, and a dial of how fast the
+  boat goes in every direction.
+- In port, **Plan route** opens a chart. Tap the water to add marks; each leg
+  shows an estimated speed and time, and turns red if it points too close to
+  the wind. Under sail the plan is drawn on the water and the game tracks
+  whether you are ahead of or behind it.
 - Profits buy a bigger hold and better sails. Each route records your best
   passage time.
 
@@ -49,8 +56,8 @@ godot --headless --path . -s tests/smoke_test.gd
 ## Layout
 
 - `sim/` game rules with no visuals: sailing maths, ship motion, trade,
-  time compression, and the list of learning stages.
-- `game/` the map and the playable scene (drawn in code).
+  route estimates, time compression, and the list of learning stages.
+- `game/` the map, the planning chart and the playable scene (drawn in code).
 - `tests/` headless tests.
 
 ## Planned stages

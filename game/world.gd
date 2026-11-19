@@ -72,3 +72,16 @@ static func distance_to_land(p: Vector2) -> float:
 			var b := polygon[(i + 1) % polygon.size()]
 			best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, a, b)))
 	return best
+
+
+static func in_bounds(p: Vector2) -> bool:
+	return Rect2(Vector2.ZERO, SIZE).has_point(p)
+
+
+## True if the straight line from a to b touches land.
+static func segment_crosses_land(a: Vector2, b: Vector2) -> bool:
+	var steps := maxi(1, int(ceil(a.distance_to(b) / 40.0)))
+	for i in steps + 1:
+		if is_land(a.lerp(b, float(i) / steps)):
+			return true
+	return false

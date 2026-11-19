@@ -12,6 +12,9 @@ const CLEAR_VISIBILITY := 3200.0
 const SQUALL_VISIBILITY := 500.0
 const METRES_PER_PX := 4.63
 const EYE_HEIGHT_M := 3.0
+## Land is drawn this many times taller than life, so a distant shore can be
+## made out on a small screen.
+const LAND_EXAGGERATION := 3.0
 ## Distance to the sea horizon from that height, in nautical miles.
 const SEA_HORIZON_NM := 3.6
 const COLUMNS := 72
@@ -203,7 +206,7 @@ func _draw_land(focal: float, haze: Color, daylight: float) -> void:
 			if j >= 0 and j < COLUMNS and _land[j].x != INF:
 				height += _land[j].y
 				count += 1.0
-		var tall := _apparent_height(height / count, hit.x, focal)
+		var tall := _apparent_height(height / count * LAND_EXAGGERATION, hit.x, focal)
 		if tall < 0.5:
 			continue
 		var left := tan(_column_angle(i)) * focal
@@ -229,7 +232,7 @@ func _draw_landmarks(heading: float, focal: float) -> void:
 		if distance > limit or distance < 30.0 or absf(offset) > FOV * 0.6:
 			continue
 		var x := tan(offset) * focal
-		var tall := maxf(_apparent_height(30.0, distance, focal), 8.0)
+		var tall := maxf(_apparent_height(30.0 * LAND_EXAGGERATION, distance, focal), 10.0)
 		draw_rect(Rect2(x - 3.0, -tall, 6.0, tall), Color.WHITE)
 		draw_rect(Rect2(x - 4.0, -tall - 4.0, 8.0, 4.0), Color("c0392b"))
 		draw_string(font, Vector2(x - 100.0, -tall - 12.0), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 200, 20, Color.WHITE)
@@ -308,7 +311,7 @@ func _draw_own_ship(w: float, h: float, twa: float, side: float) -> void:
 	var boom_end := Vector2(centre + leeward * w * (0.06 + 0.4 * eased), h * 0.9)
 	draw_colored_polygon(PackedVector2Array([mast_head, mast_foot + Vector2(0, -h * 0.06), boom_end]), sail)
 	draw_line(mast_foot + Vector2(0, -h * 0.06), boom_end, Color("4a2d16"), 7.0)
-	draw_line(mast_foot, mast_head, Color("5a3a1e"), 12.0)
+	draw_line(mast_foot, mast_head, Color("5a3a1e"), 8.0)
 	if game.ship.reefed:
 		# A reefed sail shows its lashed-down foot.
 		draw_line(mast_foot + Vector2(0, -h * 0.12), boom_end + Vector2(0, -h * 0.05), Color("8a7a5a"), 4.0)
@@ -318,7 +321,7 @@ func _draw_own_ship(w: float, h: float, twa: float, side: float) -> void:
 func _draw_compass(w: float, heading: float) -> void:
 	var font := ThemeDB.fallback_font
 	var centre := w / 2.0
-	var top := 120.0
+	var top := 150.0
 	var half_width := 300.0
 	var px_per_degree := 5.0
 	draw_rect(Rect2(centre - half_width, top, half_width * 2.0, 48.0), Color(0, 0, 0, 0.55))

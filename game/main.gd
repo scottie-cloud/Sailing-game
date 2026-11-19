@@ -51,6 +51,9 @@ const SEA := Color("1f6f9c")
 const LAND_FILL := Color("5d8a4a")
 const LAND_EDGE := Color("e3d6a1")
 const GOLD := Color("ffd24a")
+## Solid colours, so overlapping strokes along the coast do not build up.
+const SHALLOW_OUTER := Color("2a7fa6")
+const SHALLOW_INNER := Color("3f97b3")
 
 enum Mode { PORT, SAILING }
 
@@ -1229,15 +1232,15 @@ func _draw_shallows(view: Rect2) -> void:
 			var from := polygon[i]
 			var to := polygon[(i + 1) % polygon.size()]
 			if Rect2(from, Vector2.ZERO).expand(to).intersects(wide):
-				draw_line(from, to, Color(0.36, 0.72, 0.8, 0.35), 420.0)
-				draw_circle(from, 210.0, Color(0.36, 0.72, 0.8, 0.35))
+				draw_line(from, to, SHALLOW_OUTER, 420.0)
+				draw_circle(from, 210.0, SHALLOW_OUTER)
 	for polygon in World.land():
 		for i in polygon.size():
 			var from := polygon[i]
 			var to := polygon[(i + 1) % polygon.size()]
 			if Rect2(from, Vector2.ZERO).expand(to).intersects(wide):
-				draw_line(from, to, Color(0.55, 0.85, 0.86, 0.4), 150.0)
-				draw_circle(from, 75.0, Color(0.55, 0.85, 0.86, 0.4))
+				draw_line(from, to, SHALLOW_INNER, 150.0)
+				draw_circle(from, 75.0, SHALLOW_INNER)
 
 
 ## Darker clumps of scrub scattered over the land.
@@ -1397,8 +1400,8 @@ class Overlay extends Control:
 		var forecast_deg: float = game.forecast["from_deg"]
 		var forecast_to: Vector2 = SailingModel.bearing_to_vector(deg_to_rad(forecast_deg) + PI)
 		draw_line(centre - forecast_to * 40.0, centre + forecast_to * 48.0, Color(1, 1, 1, 0.3), 2.0)
-		draw_string(font, Vector2(4, 214), "Wind %s %d kn" % [Weather.compass_name(rad_to_deg(game.wind_from)), roundi(game.wind_kn)],
-			HORIZONTAL_ALIGNMENT_CENTER, 160, 22, Color.WHITE)
+		draw_string(font, Vector2(-16, 214), "Wind %s %d kn" % [Weather.compass_name(rad_to_deg(game.wind_from)), roundi(game.wind_kn)],
+			HORIZONTAL_ALIGNMENT_CENTER, 200, 20, Color.WHITE)
 
 	func _draw_minimap() -> void:
 		var map_scale: float = 200.0 / World.SIZE.x
@@ -1521,9 +1524,9 @@ class Overlay extends Control:
 		var tip: String = SailingModel.point_of_sail_tip(twa)
 		if not SailingModel.in_no_go(twa):
 			if speed < worth * 0.8:
-				tip = "Picking up speed. Every turn costs some, so turn only when you need to."
+				tip = "Picking up speed. Every turn costs some."
 			elif speed > worth * 1.15:
-				tip = "Slowing down: this heading is worth less than the last one."
+				tip = "Slowing: this heading is worth less."
 		if game.ship.manual_trim and not SailingModel.in_no_go(twa):
 			var ideal: float = SailingModel.ideal_sheet_deg(twa)
 			var sheet_now: float = game.ship.sheet_deg

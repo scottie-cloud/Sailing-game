@@ -116,17 +116,6 @@ static func distance_to_land(p: Vector2) -> float:
 	return best
 
 
-## For a point on land: how far it is from the shore.
-static func distance_to_land_edge(p: Vector2) -> float:
-	var best := INF
-	for polygon in land():
-		for i in polygon.size():
-			var a := polygon[i]
-			var b := polygon[(i + 1) % polygon.size()]
-			best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, a, b)))
-	return best
-
-
 ## True if the straight line from a to b touches land or leaves the chart.
 static func segment_crosses_land(a: Vector2, b: Vector2, step: float = 40.0) -> bool:
 	var steps := maxi(1, int(ceil(a.distance_to(b) / step)))

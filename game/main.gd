@@ -1247,7 +1247,7 @@ func _draw_scrub(view: Rect2) -> void:
 		for iy in range(int(floor(view.position.y / spacing)), int(view.end.y / spacing) + 1):
 			var seed_value := posmod(hash(Vector2i(ix * 3 + 1, iy * 5 + 2)), 10000)
 			var p := Vector2(ix * spacing + seed_value % 130, iy * spacing + (seed_value / 100) % 130)
-			if World.is_land(p) and World.distance_to_land_edge(p) > 40.0:
+			if World.is_land(p):
 				draw_circle(p, 16.0 + seed_value % 14, Color(0.25, 0.42, 0.24, 0.55))
 
 

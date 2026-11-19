@@ -12,6 +12,8 @@ const GOODS := {
 	"rope": {"name": "Rope", "origin": "queenscliff", "perishable": false, "buy": 10},
 	"fruit": {"name": "Fruit", "origin": "mornington", "perishable": true, "buy": 9},
 	"timber": {"name": "Timber", "origin": "mornington", "perishable": false, "buy": 10},
+	"crayfish": {"name": "Crayfish", "origin": "barwon", "perishable": true, "buy": 9},
+	"lime": {"name": "Lime", "origin": "barwon", "perishable": false, "buy": 10},
 }
 
 ## Par for a passage is this multiple of the pilot-route estimate in the
@@ -61,9 +63,10 @@ static func base_sale_price(good_id: String, distance_nm: float) -> float:
 	return buy * (1.15 + 0.01 * distance_nm)
 
 
-## Price per unit at the destination.
-static func sale_price(good_id: String, hours: float, par: float, distance_nm: float) -> int:
-	var base := base_sale_price(good_id, distance_nm)
+## Price per unit at the destination. Trade with a hard-to-reach port is
+## scarce, so it pays a premium (1.0 = none).
+static func sale_price(good_id: String, hours: float, par: float, distance_nm: float, premium: float = 1.0) -> int:
+	var base := base_sale_price(good_id, distance_nm) * premium
 	if GOODS[good_id]["perishable"]:
 		return roundi(base * freshness_multiplier(hours, par))
 	return roundi(base)

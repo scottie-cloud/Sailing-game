@@ -138,6 +138,26 @@ func _run() -> void:
 	game._toggle_trim()
 	await _frames(5)
 	check(not game.ship.manual_trim and not game.haul_button.visible, "switching back hides the sheet buttons")
+
+	# Pause stops the clock; reefing and the tide are available.
+	check(game.pause_button.visible and game.reef_button.visible, "pause and reef buttons show under sail")
+	game._toggle_pause()
+	var paused_at: float = game.passage_seconds
+	var paused_position: Vector2 = game.ship.position
+	await _frames(20)
+	check(game.passage_seconds == paused_at and game.ship.position == paused_position, "nothing moves while paused")
+	game._toggle_pause()
+	await _frames(20)
+	check(game.passage_seconds > paused_at, "the passage carries on after resuming")
+	game._toggle_reef()
+	check(game.ship.reefed and game.reef_button.text.contains("Reefed"), "the sail can be reefed")
+	game._toggle_reef()
+	check(not game.ship.reefed, "the reef can be shaken out")
+	check(game.tide_text().contains("Tide"), "the state of the tide is reported")
+	check(game.squalls_at(0.0).size() <= 2, "the day's squalls can be listed")
+	var clock: float = game.clock_hours
+	game.wait_hour()
+	check(game.clock_hours == clock + 1.0, "waiting an hour moves the tide clock on")
 	check(game.is_sailing(), "the ship is still under way")
 	check(game.forecast_text() != "", "the port shows a wind forecast")
 	check(game.route_par() > 0.0, "the route has a par time for the day's wind")

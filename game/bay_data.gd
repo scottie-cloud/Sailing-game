@@ -13,6 +13,7 @@ const PORT_POSITIONS := {
 	"geelong": Vector2(1700, 8400),
 	"queenscliff": Vector2(7177, 11280),
 	"mornington": Vector2(13598, 10320),
+	"barwon": Vector2(3573, 12811),
 }
 
 ## Coastline outlines, one closed ring per piece of land.

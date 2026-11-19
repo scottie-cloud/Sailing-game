@@ -1,0 +1,88 @@
+name: Build
+
+# Runs the tests and builds the browser version on every pull request.
+# On main, the browser version is also published to GitHub Pages so the
+# game can be opened on a phone from a link.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GODOT_VERSION: 4.3-stable
+  GODOT_TEMPLATES_DIR: 4.3.stable
+  GODOT_RELEASES: https://github.com/godotengine/godot/releases/download
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/godot.zip" "$GODOT_RELEASES/$GODOT_VERSION/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Rule tests
+        run: |
+          godot --headless --path . -s tests/run_tests.gd 2>&1 | tee "$RUNNER_TEMP/tests.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/tests.log"; then exit 1; fi
+          grep -q ", 0 failures" "$RUNNER_TEMP/tests.log"
+
+      - name: Play-through smoke test
+        run: |
+          godot --headless --path . -s tests/smoke_test.gd 2>&1 | tee "$RUNNER_TEMP/smoke.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/smoke.log"; then exit 1; fi
+          grep -q "smoke: 0 failures" "$RUNNER_TEMP/smoke.log"
+
+      - name: Install web export templates
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/templates.tpz" "$GODOT_RELEASES/$GODOT_VERSION/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          mkdir -p "$HOME/.local/share/godot/export_templates/$GODOT_TEMPLATES_DIR"
+          unzip -q -j "$RUNNER_TEMP/templates.tpz" "templates/web_nothreads_*" "templates/version.txt" \
+            -d "$HOME/.local/share/godot/export_templates/$GODOT_TEMPLATES_DIR"
+
+      - name: Export browser version
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html 2>&1 | tee "$RUNNER_TEMP/export.log"
+          test -s build/web/index.html
+          test -s build/web/index.wasm
+          test -s build/web/index.pck
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

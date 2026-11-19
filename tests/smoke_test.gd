@@ -140,6 +140,17 @@ func _run() -> void:
 	await _frames(5)
 	check(not game.ship.manual_trim and not game.haul_button.visible, "switching back hides the sheet buttons")
 
+	# The view from the deck can be switched on and off.
+	check(game.view_button.visible and not game.deck_view.visible, "the chart view is the default")
+	game._toggle_view()
+	await _frames(8)
+	check(game.deck_mode and game.deck_view.visible, "the deck view can be switched on")
+	check(game.deck_view._land.size() == game.deck_view.COLUMNS, "the deck view scans for land in sight")
+	game._toggle_view()
+	check(not game.deck_view.visible, "and switched off again")
+	check(game.clock_text().begins_with("Day "), "the time of day is shown")
+	check(game.daylight() >= 0.0 and game.daylight() <= 1.0, "daylight is a fraction")
+
 	# Pause stops the clock; reefing and the tide are available.
 	check(game.pause_button.visible and game.reef_button.visible, "pause and reef buttons show under sail")
 	game._toggle_pause()

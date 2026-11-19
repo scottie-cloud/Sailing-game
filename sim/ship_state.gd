@@ -32,14 +32,19 @@ var damaged := false
 ## Pixels per game second over the ground, including leeway and current.
 var velocity := Vector2.ZERO
 
+## Set from the ship and her upgrades: how readily she turns, how much she
+## slips sideways, and how long she stands being overpowered.
+var turn_factor := 1.0
+var leeway_factor := 1.0
+var strain_limit_s := 1200.0
+
 const OVERPOWERED_SPEED_FACTOR := 0.8
 const DAMAGED_SPEED_FACTOR := 0.7
-const STRAIN_LIMIT_S := 1200.0
 
 
 func step(dt: float, rudder: float, wind_from: float, wind_kn: float, current_kn: Vector2 = Vector2.ZERO) -> void:
 	var steerage := lerpf(MIN_STEERAGE, 1.0, clampf(speed_kn / hull_speed_kn, 0.0, 1.0))
-	var turn := deg_to_rad(TURN_RATE_DEG_PER_MIN) / 60.0 * clampf(rudder, -1.0, 1.0) * steerage * dt
+	var turn := deg_to_rad(TURN_RATE_DEG_PER_MIN) / 60.0 * clampf(rudder, -1.0, 1.0) * steerage * turn_factor * dt
 	heading = wrapf(heading + turn, 0.0, TAU)
 
 	var side_angle := SailingModel.signed_wind_angle(heading, wind_from)
@@ -54,7 +59,7 @@ func step(dt: float, rudder: float, wind_from: float, wind_kn: float, current_kn
 		# Laid over on her side, she goes slower and slides sideways.
 		target *= OVERPOWERED_SPEED_FACTOR
 		strain_s += dt
-		if strain_s > STRAIN_LIMIT_S:
+		if strain_s > strain_limit_s:
 			damaged = true
 	else:
 		strain_s = maxf(0.0, strain_s - dt)
@@ -63,7 +68,7 @@ func step(dt: float, rudder: float, wind_from: float, wind_kn: float, current_kn
 	speed_kn = lerpf(target, speed_kn, exp(-dt / SPEED_TAU_S))
 
 	# Leeway pushes the boat away from the wind; the current carries her bodily.
-	var leeway := deg_to_rad(SailingModel.leeway_deg(twa)) * signf(side_angle) * (2.0 if overpowered else 1.0)
+	var leeway := deg_to_rad(SailingModel.leeway_deg(twa)) * signf(side_angle) * leeway_factor * (2.0 if overpowered else 1.0)
 	velocity = (SailingModel.bearing_to_vector(heading - leeway) * speed_kn + current_kn) * PX_PER_NM / 3600.0
 	position += velocity * dt
 

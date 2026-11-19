@@ -4,6 +4,7 @@ extends SceneTree
 ## Run with: godot --headless --path . -s tests/smoke_test.gd
 
 const Trade = preload("res://sim/trade.gd")
+const Contracts = preload("res://sim/contracts.gd")
 const World = preload("res://game/world.gd")
 
 ## A mark in open water in the middle of the bay.
@@ -38,7 +39,7 @@ func _run() -> void:
 	var good_id: String = Trade.goods_sold_at(origin)[0]
 	game._change_cargo(good_id, 999)
 	check(game._cargo_units() > 0, "cargo can be bought")
-	check(game._cargo_units() <= Trade.hold_capacity(game.hold_level), "cargo fits the hold")
+	check(game._cargo_units() <= game.hold_capacity(), "cargo fits the hold")
 	check(game.money >= 0, "buying never overdraws")
 
 	# Plan a route on the chart: one mark by tapping, one added directly.
@@ -161,6 +162,50 @@ func _run() -> void:
 	check(game.is_sailing(), "the ship is still under way")
 	check(game.forecast_text() != "", "the port shows a wind forecast")
 	check(game.route_par() > 0.0, "the route has a par time for the day's wind")
+
+	# Finish the passage, then use the shipyard and take a charter.
+	var second_port: String = game.destination
+	var second_pos := World.port_position(second_port)
+	game.ship.position = second_pos + (World.SIZE / 2.0 - second_pos).normalized() * 100.0
+	await _frames(5)
+	check(not game.is_sailing() and game.current_port == second_port, "the second passage ends in port")
+
+	game.money = 5000
+	game.open_shipyard()
+	await _frames(3)
+	check(game.shipyard_screen.visible and game.shipyard_screen.rows.get_child_count() == 7, "the shipyard lists three ships and four upgrades")
+	game._buy_ship("ketch")
+	check(game.ship_id == "ketch" and game.hold_capacity() == 28, "a bigger ship can be bought")
+	game._buy_upgrade("keel")
+	game._buy_upgrade("hold")
+	check(game.upgrade_level("keel") == 1 and game.hold_capacity() == 33, "upgrades can be fitted")
+	check(game.money < 5000, "the shipyard takes its money")
+	game.close_screens()
+	check(game.port_panel.visible and not game.shipyard_screen.visible, "closing the shipyard returns to the port screen")
+
+	var offers := Contracts.offers_at(game.current_port)
+	check(not offers.is_empty(), "this port offers a charter")
+	game.open_contracts()
+	await _frames(3)
+	check(game.contracts_screen.rows.get_child_count() == offers.size(), "the charters screen lists the offers")
+	var offer: Dictionary = offers[offers.size() - 1]
+	game._accept_contract(offer["id"])
+	check(game.active_contract == offer["id"] and game.destination == offer["to"], "accepting a charter sets the destination")
+	game.close_screens()
+	game._change_cargo(offer["good"], 999)
+	check(game.expected_price(offer["good"]) > 0, "the port shows what the cargo should fetch")
+	var money_before_charter: int = game.money
+	game._set_sail()
+	await _frames(5)
+	check(game.ship.turn_factor < 1.0 and game.ship.leeway_factor < 1.0, "the new ship and keel change how she handles")
+	var charter_pos := World.port_position(offer["to"])
+	game.ship.position = charter_pos + (World.SIZE / 2.0 - charter_pos).normalized() * 100.0
+	await _frames(5)
+	check(not game.is_sailing(), "the charter passage ends in port")
+	check(game.port_report.text.contains("Charter fulfilled"), "the charter is fulfilled on arrival")
+	check(int(game.completed_contracts.get(offer["id"], 0)) == 1 and game.active_contract == "", "the charter is recorded and cleared")
+	check(game.money > money_before_charter, "the charter and cargo pay")
+	check(not game.glut.is_empty(), "the cargo landed is remembered by the market")
 
 	print("smoke: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

@@ -1,5 +1,5 @@
 extends RefCounted
-## Cargo, prices and ship upgrades. Perishable cargo is what makes speed pay:
+## Cargo and prices. Perishable cargo is what makes speed pay:
 ## it sells for a premium after a fast passage and at a loss after a slow one.
 ## Every cargo is worth more the further it has been carried.
 
@@ -9,11 +9,11 @@ const GOODS := {
 	"butter": {"name": "Butter", "origin": "geelong", "perishable": true, "buy": 9},
 	"wool": {"name": "Wool", "origin": "geelong", "perishable": false, "buy": 10},
 	"fish": {"name": "Fresh fish", "origin": "queenscliff", "perishable": true, "buy": 8},
-	"rope": {"name": "Rope", "origin": "queenscliff", "perishable": false, "buy": 10},
+	"lime": {"name": "Lime", "origin": "queenscliff", "perishable": false, "buy": 10},
 	"fruit": {"name": "Fruit", "origin": "mornington", "perishable": true, "buy": 9},
 	"timber": {"name": "Timber", "origin": "mornington", "perishable": false, "buy": 10},
 	"crayfish": {"name": "Crayfish", "origin": "barwon", "perishable": true, "buy": 9},
-	"lime": {"name": "Lime", "origin": "barwon", "perishable": false, "buy": 10},
+	"onions": {"name": "Onions", "origin": "barwon", "perishable": false, "buy": 10},
 }
 
 ## Par for a passage is this multiple of the pilot-route estimate in the
@@ -24,12 +24,6 @@ const FAST_FRACTION := 0.85
 const SLOW_FRACTION := 1.75
 const FAST_MULTIPLIER := 1.5
 const SLOW_MULTIPLIER := 0.5
-
-const BASE_HOLD := 10
-const HOLD_PER_LEVEL := 5
-const SAIL_BONUS_PER_LEVEL := 0.06
-const MAX_UPGRADE_LEVEL := 3
-const UPGRADE_BASE_COST := {"hold": 150, "sails": 200}
 
 
 static func route_key(from_port: String, to_port: String) -> String:
@@ -70,22 +64,6 @@ static func sale_price(good_id: String, hours: float, par: float, distance_nm: f
 	if GOODS[good_id]["perishable"]:
 		return roundi(base * freshness_multiplier(hours, par))
 	return roundi(base)
-
-
-static func hold_capacity(level: int) -> int:
-	return BASE_HOLD + HOLD_PER_LEVEL * level
-
-
-static func sail_bonus(level: int) -> float:
-	return 1.0 + SAIL_BONUS_PER_LEVEL * level
-
-
-## Cost of the next level, or -1 when maxed out.
-static func upgrade_cost(kind: String, level: int) -> int:
-	if level >= MAX_UPGRADE_LEVEL:
-		return -1
-	var base: float = UPGRADE_BASE_COST[kind]
-	return roundi(base * pow(1.6, level))
 
 
 ## Arrive inside this many hours and perishable cargo still earns a premium.

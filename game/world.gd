@@ -3,6 +3,7 @@ extends RefCounted
 ## 400 px = 1 nautical mile, north is up the screen.
 
 const Bay = preload("res://game/bay_data.gd")
+const Tide = preload("res://sim/tide.gd")
 
 const SIZE: Vector2 = Bay.SIZE
 
@@ -11,7 +12,14 @@ const PORTS := {
 	"geelong": {"name": "Geelong"},
 	"queenscliff": {"name": "Queenscliff"},
 	"mornington": {"name": "Mornington"},
+	# Outside the Heads on the ocean coast: reached only through the Rip.
+	"barwon": {"name": "Barwon Heads", "premium": 1.4},
 }
+
+## The middle of the Rip, the narrow entrance to the bay, and the direction
+## the flood tide runs through it.
+const RIP_CENTRE := Vector2(6880, 12530)
+const FLOOD_BEARING_DEG := 62.0
 
 ## The prevailing breeze: south-westerly.
 const WIND_FROM_DEG := 225.0
@@ -49,6 +57,21 @@ static func port_position(port: String) -> Vector2:
 
 static func port_name(port: String) -> String:
 	return PORTS[port]["name"]
+
+
+## How much extra trade with this port pays for being hard to reach (1.0 = none).
+static func port_premium(port: String) -> float:
+	return PORTS[port].get("premium", 1.0)
+
+
+## The premium on a route is that of its harder end.
+static func route_premium(from_port: String, to_port: String) -> float:
+	return maxf(port_premium(from_port), port_premium(to_port))
+
+
+## The tidal stream at a position, in knots.
+static func current_kn(position: Vector2, clock_hours: float) -> Vector2:
+	return Tide.current_kn(position, clock_hours, RIP_CENTRE, deg_to_rad(FLOOD_BEARING_DEG))
 
 
 ## Every port that can be sailed to from this one.

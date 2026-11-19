@@ -48,6 +48,15 @@ func setup(game_ref) -> void:
 	bar.add_child(_button("Clear", clear))
 	bar.add_child(_button("Done", _done))
 
+	# Waiting in port lets the tide turn before you leave.
+	var wait := _button("Wait 1h", _wait)
+	wait.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	wait.offset_left = -150
+	wait.offset_right = -16
+	wait.offset_top = 12
+	wait.offset_bottom = 76
+	add_child(wait)
+
 
 func _button(text: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -88,6 +97,11 @@ func use_record() -> void:
 	if record.is_empty():
 		return
 	game.follow_track(record)
+	refresh()
+
+
+func _wait() -> void:
+	game.wait_hour()
 	refresh()
 
 
@@ -157,8 +171,28 @@ func _draw() -> void:
 	for i in range(1, record.size()):
 		draw_dashed_line(to_screen(record[i - 1]), to_screen(record[i]), RECORD, 2.0, 8.0)
 	draw_string(font, map_rect.position + Vector2(12, 26), "Wind today: %s" % game.forecast_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
+	draw_string(font, map_rect.position + Vector2(12, 50), game.tide_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
 	if not record.is_empty():
-		draw_string(font, map_rect.position + Vector2(12, 52), "Dashed blue: your record course", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, RECORD)
+		draw_string(font, map_rect.position + Vector2(12, 74), "Dashed blue: your record course", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, RECORD)
+
+	# The tidal stream in the Rip: an arrow the way it is running now.
+	var stream: Vector2 = World.current_kn(World.RIP_CENTRE, game.now_hours())
+	if stream.length() > 0.3:
+		var rip := to_screen(World.RIP_CENTRE)
+		var flow := stream.normalized()
+		var flow_head := rip + flow * (8.0 + stream.length() * 8.0)
+		draw_line(rip - flow * 8.0, flow_head, RECORD, 3.0)
+		draw_colored_polygon(PackedVector2Array([flow_head + flow * 9.0, flow_head + flow.orthogonal() * 6.0, flow_head - flow.orthogonal() * 6.0]), RECORD)
+
+	# Forecast squalls: where each will be when you leave, and its track for six hours.
+	for squall: Dictionary in game.squalls_at(0.0):
+		var squall_radius: float = squall["radius"]
+		draw_circle(to_screen(squall["centre"]), squall_radius * s, Color(0.05, 0.05, 0.1, 0.45))
+	var later: Array[Dictionary] = game.squalls_at(6.0)
+	var sooner: Array[Dictionary] = game.squalls_at(0.0)
+	for i in later.size():
+		draw_dashed_line(to_screen(sooner[i]["centre"]), to_screen(later[i]["centre"]), Color(0.05, 0.05, 0.1, 0.8), 2.0, 6.0)
+		draw_string(font, to_screen(later[i]["centre"]) + Vector2(6, 4), "squall +6h", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	var legs: Array[Dictionary] = game.estimate(route)

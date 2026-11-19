@@ -16,6 +16,11 @@ const AUTO_TRIM_EFFICIENCY := 0.85
 ## Wind strength at which the boat reaches its full polar speed.
 const FULL_POWER_WIND_KN := 12.0
 
+## A reefed sail is smaller: it feels this fraction of the wind.
+const REEF_WIND_FACTOR := 0.7
+## More wind than this in the sail and the boat is overpowered.
+const OVERPOWERED_KN := 20.0
+
 ## Speed polar for a small fore-and-aft boat: fraction of hull speed by TWA.
 const POLAR_ANGLES: Array[float] = [0.0, 30.0, 40.0, 50.0, 60.0, 90.0, 120.0, 150.0, 180.0]
 const POLAR_FRACTIONS: Array[float] = [0.0, 0.05, 0.30, 0.55, 0.70, 0.90, 1.0, 0.86, 0.72]
@@ -127,3 +132,12 @@ static func point_of_sail_tip(twa_deg: float) -> String:
 	if twa_deg < 150.0:
 		return "Wind over the back corner: her fastest heading."
 	return "Wind dead behind: steady, but slower than a broad reach."
+
+
+## The wind the sail has to cope with: less when reefed.
+static func sail_wind_kn(wind_kn: float, reefed: bool) -> float:
+	return wind_kn * REEF_WIND_FACTOR if reefed else wind_kn
+
+
+static func is_overpowered(wind_kn: float, reefed: bool) -> bool:
+	return sail_wind_kn(wind_kn, reefed) > OVERPOWERED_KN

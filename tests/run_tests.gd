@@ -9,6 +9,7 @@ const TimeCompression = preload("res://sim/time_compression.gd")
 const RoutePlan = preload("res://sim/route_plan.gd")
 const Track = preload("res://sim/track.gd")
 const Weather = preload("res://sim/weather.gd")
+const Tide = preload("res://sim/tide.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -41,6 +42,8 @@ func _init() -> void:
 	test_route_plan()
 	test_track()
 	test_weather()
+	test_tide()
+	test_heavy_weather()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -196,7 +199,7 @@ func test_world() -> void:
 			var route := World.pilot_route(port, other)
 			var straight := position.distance_to(World.port_position(other)) / 400.0
 			routes_ok = routes_ok and route.size() >= 2 and route[0] == position and route[route.size() - 1] == World.port_position(other)
-			routes_ok = routes_ok and World.route_length_nm(route) >= straight - 0.01 and World.route_length_nm(route) < straight * 3.0
+			routes_ok = routes_ok and World.route_length_nm(route) >= straight - 0.01 and World.route_length_nm(route) < straight * 4.0
 			for i in range(1, route.size()):
 				routes_ok = routes_ok and not World.segment_crosses_land(route[i - 1], route[i], 100.0)
 	check(roomy, "every port is in the water with room to dock")
@@ -323,3 +326,93 @@ func test_weather() -> void:
 	check(Weather.compass_name(70.0) == "ENE" and Weather.compass_name(350.0) == "N", "compass names round to the nearest point")
 	check(Weather.describe({"from_deg": 225.0, "kn": 11.0}) == "SW 11 kn", "a forecast reads as direction and strength")
 	check(near(Trade.par_from_estimate(5.0), 5.0 * Trade.PAR_FACTOR), "par is a multiple of the direct estimate")
+
+
+func test_tide() -> void:
+	var rip := World.RIP_CENTRE
+	var flood := deg_to_rad(World.FLOOD_BEARING_DEG)
+	var quarter := Tide.CYCLE_HOURS / 4.0
+	check(near(Tide.phase(0.0), 0.0) and near(Tide.phase(quarter), 1.0) and near(Tide.phase(quarter * 3.0), -1.0), "the tide runs from slack to flood to ebb")
+	check(near(Tide.peak_kn(0.0), Tide.RIP_PEAK_KN + Tide.BAY_PEAK_KN), "the stream is strongest in the middle of the Rip")
+	check(Tide.peak_kn(8000.0) < 0.5, "the stream is gentle in the open bay")
+	var flooding := Tide.current_kn(rip, quarter, rip, flood)
+	var ebbing := Tide.current_kn(rip, quarter * 3.0, rip, flood)
+	check(flooding.normalized().is_equal_approx(SailingModel.bearing_to_vector(flood)), "the flood runs into the bay")
+	check(flooding.is_equal_approx(-ebbing), "the ebb runs the other way at the same strength")
+	check(Tide.current_kn(rip, 0.0, rip, flood).length() < 0.01, "there is no stream at slack water")
+	check(near(Tide.hours_to_turn(0.0), Tide.CYCLE_HOURS / 2.0) and near(Tide.hours_to_turn(quarter), quarter), "time to the next turn of the tide")
+	check(Tide.describe(quarter) == "flooding in" and Tide.describe(quarter * 3.0) == "ebbing out" and Tide.describe(0.0) == "slack water", "the tide is described in words")
+	check(World.current_kn(rip, quarter).length() > World.current_kn(Vector2(11000, 6000), quarter).length() * 5.0, "the Rip runs far harder than the bay")
+	check(not World.is_blocked(rip), "the middle of the Rip is open water")
+
+	# A current carries the ship over the ground without changing her speed through the water.
+	var still := ShipState.new()
+	var carried := ShipState.new()
+	for i in 3600:
+		still.step(1.0, 0.0, EAST, 12.0)
+		carried.step(1.0, 0.0, EAST, 12.0, Vector2(0, -2.0))
+	check(near(still.speed_kn, carried.speed_kn), "a current does not change speed through the water")
+	check(near(carried.ground_speed_kn(), still.ground_speed_kn() + 2.0, 0.1), "a fair current adds to speed over the ground")
+	check(carried.position.y < still.position.y - 700.0, "a fair current carries her further")
+
+	check(World.port_premium("barwon") > 1.0 and near(World.port_premium("melbourne"), 1.0), "only the ocean port pays a premium")
+	check(near(World.route_premium("melbourne", "barwon"), World.port_premium("barwon")) and near(World.route_premium("barwon", "geelong"), World.port_premium("barwon")), "the premium applies both ways")
+	check(Trade.sale_price("timber", 9.0, 9.0, 15.0, 1.4) > Trade.sale_price("timber", 9.0, 9.0, 15.0), "a premium raises the price")
+	check(Trade.goods_sold_at("barwon").size() == 2, "the ocean port sells two goods")
+
+
+func test_heavy_weather() -> void:
+	check(not SailingModel.is_overpowered(12.0, false) and SailingModel.is_overpowered(24.0, false), "full sail is overpowered in a strong wind")
+	check(not SailingModel.is_overpowered(24.0, true), "a reefed sail copes with a strong wind")
+
+	var full := ShipState.new()
+	var reefed := ShipState.new()
+	reefed.reefed = true
+	for i in 1800:
+		full.step(1.0, 0.0, EAST, 12.0)
+		reefed.step(1.0, 0.0, EAST, 12.0)
+	check(reefed.speed_kn < full.speed_kn * 0.8, "reefing costs speed in ordinary wind")
+	check(not full.overpowered and not full.damaged, "ordinary wind does no harm under full sail")
+
+	var pressed := ShipState.new()
+	var snug := ShipState.new()
+	snug.reefed = true
+	for i in 600:
+		pressed.step(1.0, 0.0, EAST, 24.0)
+		snug.step(1.0, 0.0, EAST, 24.0)
+	check(pressed.overpowered and not pressed.damaged, "a short blow under full sail strains her but does no damage yet")
+	check(snug.speed_kn > pressed.speed_kn, "reefed, she is faster than an overpowered ship in a blow")
+	for i in 900:
+		pressed.step(1.0, 0.0, EAST, 24.0)
+		snug.step(1.0, 0.0, EAST, 24.0)
+	check(pressed.damaged, "staying overpowered too long splits a sail")
+	check(not snug.damaged and not snug.overpowered, "the reefed ship comes through unharmed")
+	var before := pressed.speed_kn
+	for i in 3600:
+		pressed.step(1.0, 0.0, EAST, 12.0)
+		full.step(1.0, 0.0, EAST, 12.0)
+	check(pressed.speed_kn < full.speed_kn * 0.8 and before > 0.0, "a split sail leaves her slow even after the wind eases")
+
+	# Squalls: stronger wind inside, forecast wind outside, and they move downwind.
+	var map_size := World.SIZE
+	var forecast := {"from_deg": 270.0, "kn": 12.0, "slow_phase": 0.0, "slow_hours": 3.0, "quick_phase": 0.0,
+		"quick_hours": 1.0, "strength_phase": 0.0, "strength_hours": 2.0,
+		"squalls": [{"delay_hours": 1.0, "offset": 0.0, "extra_kn": 10.0, "radius": 2000.0}]}
+	var squall: Dictionary = forecast["squalls"][0]
+	var at_start := Weather.squall_centre(forecast, squall, 1.0, map_size)
+	var later := Weather.squall_centre(forecast, squall, 2.0, map_size)
+	check(near(later.x - at_start.x, Weather.SQUALL_SPEED, 1.0) and near(later.y, at_start.y, 1.0), "a squall in a westerly travels east at its speed")
+	var inside := Weather.wind_at(forecast, 7200.0, later, map_size)
+	var outside := Weather.wind_at(forecast, 7200.0, later + Vector2(0, 5000), map_size)
+	check(near(float(inside["kn"]) - float(outside["kn"]), 10.0, 0.01) and near(inside["squall"], 1.0), "the wind is stronger in the heart of a squall")
+	check(near(outside["squall"], 0.0), "outside the squall the wind is as forecast")
+	check(near(Weather.squall_strength(0.0, 2000.0), 1.0) and near(Weather.squall_strength(2000.0, 2000.0), 0.0), "a squall fades out at its edge")
+	check(Weather.describe(forecast).contains("squall"), "the forecast mentions squalls")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var with_squalls := 0
+	for i in 100:
+		var rolled: Array = Weather.roll(rng)["squalls"]
+		with_squalls += 1 if not rolled.is_empty() else 0
+		check(rolled.size() <= 2, "at most two squalls a day")
+	check(with_squalls > 30 and with_squalls < 90, "some days have squalls and some do not")

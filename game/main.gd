@@ -9,6 +9,7 @@ const TimeCompression = preload("res://sim/time_compression.gd")
 const RoutePlan = preload("res://sim/route_plan.gd")
 const Weather = preload("res://sim/weather.gd")
 const Track = preload("res://sim/track.gd")
+const Tide = preload("res://sim/tide.gd")
 const World = preload("res://game/world.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
@@ -19,6 +20,11 @@ const GAME_SECONDS_PER_REAL_SECOND := 60.0
 const DOCK_RADIUS := 170.0
 ## How fast the sheet runs in or out while a trim button is held (degrees a second).
 const SHEET_RATE_DEG := 30.0
+## A squall is announced when its edge is this close (px).
+const SQUALL_WARNING_DISTANCE := 1800.0
+const REPAIR_COST := 30
+## Hours spent in port unloading and loading.
+const TURNAROUND_HOURS := 1.0
 ## How close the ship has to pass a planned mark to count as rounding it.
 const MARK_RADIUS := 200.0
 const MAX_MARKS := 12
@@ -46,6 +52,13 @@ var rng := RandomNumberGenerator.new()
 ## Today's wind as forecast in port. Under sail the real wind drifts from it.
 var forecast := {}
 var passage_par := 0.0
+## Hours since the game began: sets the state of the tide.
+var clock_hours := 0.0
+var paused := false
+## How deep in a squall the ship is, 0 to 1, and which squalls have been announced.
+var squall_strength := 0.0
+var announced_squalls := {}
+var announced_damage := false
 var announced_wind_from := 0.0
 var time_scale := 1.0
 var passage_seconds := 0.0
@@ -100,6 +113,8 @@ var destination_button: Button
 var trim_button: Button
 var haul_button: Button
 var ease_button: Button
+var reef_button: Button
+var pause_button: Button
 
 
 func _ready() -> void:
@@ -116,7 +131,7 @@ func is_sailing() -> bool:
 
 func _process(delta: float) -> void:
 	anim_time += delta
-	if mode == Mode.SAILING:
+	if mode == Mode.SAILING and not paused:
 		_sail(delta)
 	camera.position = ship.position
 	_update_hud()
@@ -270,9 +285,62 @@ func follow_log_entry(index: int) -> void:
 
 
 func _apply_wind(game_seconds: float) -> void:
-	var now := Weather.wind_at(forecast, game_seconds)
+	var now := Weather.wind_at(forecast, game_seconds, ship.position, World.SIZE)
 	wind_from = now["from"]
 	wind_kn = now["kn"]
+	squall_strength = now["squall"]
+
+
+## The time on the tide clock, including the passage so far.
+func now_hours() -> float:
+	return clock_hours + (passage_seconds / 3600.0 if mode == Mode.SAILING else 0.0)
+
+
+func tide_text() -> String:
+	return "Tide at the Heads: %s, turns in %s" % [Tide.describe(now_hours()), format_hours(Tide.hours_to_turn(now_hours()))]
+
+
+## Squalls as {"centre", "radius"} at a time this many hours into the passage.
+func squalls_at(hours: float) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var squalls: Array = forecast.get("squalls", [])
+	for squall: Dictionary in squalls:
+		result.append({"centre": Weather.squall_centre(forecast, squall, hours, World.SIZE), "radius": squall["radius"]})
+	return result
+
+
+## Wait in port for the tide. The wind forecast stays as it is.
+func wait_hour() -> void:
+	clock_hours += 1.0
+	_refresh_port_panel()
+	_save_game()
+
+
+func _toggle_pause() -> void:
+	paused = not paused
+	pause_button.text = "Resume" if paused else "Pause"
+
+
+func _toggle_reef() -> void:
+	ship.reefed = not ship.reefed
+	_show_sailing_controls(mode == Mode.SAILING)
+
+
+## Warn of a squall before it arrives, and of damage when it happens.
+func _watch_weather() -> void:
+	var squalls := squalls_at(passage_seconds / 3600.0)
+	for i in squalls.size():
+		var centre: Vector2 = squalls[i]["centre"]
+		var radius: float = squalls[i]["radius"]
+		if not announced_squalls.has(i) and ship.position.distance_to(centre) < radius + SQUALL_WARNING_DISTANCE:
+			announced_squalls[i] = true
+			time_scale = 1.0
+			var bearing := SailingModel.vector_to_bearing(centre - ship.position)
+			_show_notice("Squall coming from the %s! Reef before it hits, or risk a split sail." % Weather.compass_name(rad_to_deg(bearing)), 7.0)
+	if ship.damaged and not announced_damage:
+		announced_damage = true
+		time_scale = 1.0
+		_show_notice("A sail has split! She is slower until it is repaired in port.", 7.0)
 
 
 # --- Sailing -----------------------------------------------------------------
@@ -314,6 +382,10 @@ func _show_sailing_controls(sailing: bool) -> void:
 	trim_button.text = "Trim: by hand" if ship.manual_trim else "Trim: auto"
 	haul_button.visible = sailing and ship.manual_trim
 	ease_button.visible = sailing and ship.manual_trim
+	reef_button.visible = sailing
+	reef_button.text = "Reefed: shake out" if ship.reefed else "Reef sail"
+	pause_button.visible = sailing
+	pause_button.text = "Resume" if paused else "Pause"
 
 
 func _in_no_go() -> bool:
@@ -361,11 +433,12 @@ func _sail(delta: float) -> void:
 	# Land, the destination and the next mark are all places a decision is due.
 	var hazard := minf(World.distance_to_land(ship.position), ship.position.distance_to(target_point()))
 	hazard = minf(hazard, to_destination)
-	var target := TimeCompression.target_scale(rudder != 0.0 or trim != 0.0, in_irons, land_ahead, hazard)
+	_watch_weather()
+	var target := TimeCompression.target_scale(rudder != 0.0 or trim != 0.0, in_irons or ship.overpowered, land_ahead, hazard)
 	time_scale = TimeCompression.approach(time_scale, target, delta)
 
 	var dt := delta * GAME_SECONDS_PER_REAL_SECOND * time_scale
-	ship.step(dt, rudder, wind_from, wind_kn)
+	ship.step(dt, rudder, wind_from, wind_kn, World.current_kn(ship.position, now_hours()))
 	passage_seconds += dt
 
 	if World.is_blocked(ship.position):
@@ -416,6 +489,11 @@ func _set_sail() -> void:
 	chart.visible = false
 	log_screen.visible = false
 	ship.sheet_deg = SailingModel.ideal_sheet_deg(ship.true_wind_angle_deg(wind_from))
+	ship.reefed = false
+	ship.strain_s = 0.0
+	paused = false
+	announced_squalls = {}
+	announced_damage = ship.damaged
 	_show_sailing_controls(true)
 
 
@@ -447,7 +525,7 @@ func _arrive() -> void:
 		var units: int = cargo[good_id]
 		if units <= 0:
 			continue
-		var price := Trade.sale_price(good_id, hours, par, distance_nm)
+		var price := Trade.sale_price(good_id, hours, par, distance_nm, World.route_premium(current_port, destination))
 		var good: Dictionary = Trade.GOODS[good_id]
 		var condition := ""
 		if good["perishable"]:
@@ -465,6 +543,12 @@ func _arrive() -> void:
 	else:
 		lines.append("You arrived with an empty hold.")
 	money += total
+	if ship.damaged:
+		var repair := mini(REPAIR_COST, money)
+		money -= repair
+		ship.damaged = false
+		lines.append("The split sail was repaired for $%d." % repair)
+	clock_hours += hours + TURNAROUND_HOURS
 	ship_log.push_front({
 		"from": current_port,
 		"to": destination,
@@ -563,7 +647,7 @@ func _upgrade_text(label: String, kind: String, level: int) -> String:
 
 func _refresh_port_panel() -> void:
 	port_money.text = "Money: $%d     Hold: %d / %d" % [money, _cargo_units(), Trade.hold_capacity(hold_level)]
-	plan_label.text = "Wind today: %s, and it will shift at sea. %s" % [forecast_text(), plan_summary(false)]
+	plan_label.text = "Wind today: %s, shifting at sea. %s" % [forecast_text(), plan_summary(false)]
 	for good_id: String in goods_count_labels:
 		var count_label: Label = goods_count_labels[good_id]
 		count_label.text = str(int(cargo.get(good_id, 0)))
@@ -576,7 +660,9 @@ func _refresh_port_panel() -> void:
 	if best_times.has(key):
 		record = "best " + _format_time(float(best_times[key]) * 3600.0)
 	sail_button.text = "Set sail for %s  (%s)" % [World.port_name(destination), record]
-	destination_button.text = "To: %s, %d nm (change)" % [World.port_name(destination), roundi(route_distance_nm())]
+	var premium := World.route_premium(current_port, destination)
+	var bonus := ", pays +%d%%" % roundi((premium - 1.0) * 100.0) if premium > 1.0 else ""
+	destination_button.text = "To: %s, %d nm%s (change)" % [World.port_name(destination), roundi(route_distance_nm()), bonus]
 
 
 func _rebuild_goods_rows() -> void:
@@ -715,6 +801,26 @@ func _build_ui() -> void:
 	ease_button.offset_bottom = -214
 	root.add_child(ease_button)
 
+	reef_button = _make_button("", _toggle_reef, 170)
+	reef_button.focus_mode = Control.FOCUS_NONE
+	reef_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	reef_button.offset_left = -200
+	reef_button.offset_right = -30
+	reef_button.offset_top = -366
+	reef_button.offset_bottom = -306
+	reef_button.add_theme_font_size_override("font_size", 20)
+	root.add_child(reef_button)
+
+	pause_button = _make_button("Pause", _toggle_pause, 170)
+	pause_button.focus_mode = Control.FOCUS_NONE
+	pause_button.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	pause_button.offset_left = 30
+	pause_button.offset_right = 200
+	pause_button.offset_top = 236
+	pause_button.offset_bottom = 292
+	pause_button.add_theme_font_size_override("font_size", 20)
+	root.add_child(pause_button)
+
 	port_panel = PanelContainer.new()
 	port_panel.set_anchors_preset(Control.PRESET_CENTER)
 	port_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -767,8 +873,9 @@ func _build_ui() -> void:
 	box.add_child(upgrades)
 	var departure := HBoxContainer.new()
 	departure.add_theme_constant_override("separation", 12)
-	destination_button = _make_button("", _cycle_destination, 330)
-	destination_button.custom_minimum_size = Vector2(330, 64)
+	destination_button = _make_button("", _cycle_destination, 400)
+	destination_button.custom_minimum_size = Vector2(400, 64)
+	destination_button.add_theme_font_size_override("font_size", 20)
 	departure.add_child(destination_button)
 	sail_button = _make_button("", _set_sail, 0)
 	sail_button.custom_minimum_size = Vector2(0, 64)
@@ -795,8 +902,12 @@ func _show_notice(text: String, seconds: float) -> void:
 func _current_hint() -> String:
 	if mode != Mode.SAILING:
 		return ""
+	if paused:
+		return "Paused. Tap Resume to sail on."
 	if anim_time < notice_until:
 		return notice
+	if ship.overpowered:
+		return "Too much sail for this wind! Reef, or a sail will split."
 	if land_ahead:
 		return "Land ahead! Turn away."
 	if _in_no_go():
@@ -858,6 +969,7 @@ func _draw() -> void:
 				draw_line(from, to, LAND_EDGE, 10.0)
 	_draw_ports()
 	if mode == Mode.SAILING:
+		_draw_squalls()
 		_draw_record()
 		_draw_plan()
 		_draw_ship()
@@ -886,6 +998,16 @@ func _draw_ports() -> void:
 		draw_circle(p, 26.0, Color("7a5230"))
 		draw_circle(p, 14.0, Color("f4ecd8"))
 		draw_string(font, p + Vector2(-120, -44), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 240, 30, Color.WHITE)
+
+
+## Squalls darken the water they are over.
+func _draw_squalls() -> void:
+	for squall in squalls_at(passage_seconds / 3600.0):
+		var centre: Vector2 = squall["centre"]
+		var radius: float = squall["radius"]
+		if centre.distance_to(ship.position) < radius + 2000.0:
+			draw_circle(centre, radius, Color(0.08, 0.1, 0.16, 0.3))
+			draw_circle(centre, radius * 0.6, Color(0.08, 0.1, 0.16, 0.25))
 
 
 ## The course of the record passage on this route, as a faint dashed line.
@@ -996,6 +1118,11 @@ class Overlay extends Control:
 		for port: String in World.PORTS:
 			var colour := GOLD if port == game.destination else Color.WHITE
 			draw_circle(origin + World.port_position(port) * map_scale, 5.0, colour)
+		for squall: Dictionary in game.squalls_at(game.passage_seconds / 3600.0):
+			var squall_centre: Vector2 = squall["centre"]
+			var squall_radius: float = squall["radius"]
+			if World.in_bounds(squall_centre):
+				draw_circle(origin + squall_centre * map_scale, squall_radius * map_scale, Color(0.05, 0.05, 0.1, 0.55))
 		var target: Vector2 = game.target_point()
 		draw_circle(origin + target * map_scale, 4.0, GOLD)
 		var ship_at: Vector2 = origin + game.ship.position * map_scale
@@ -1003,6 +1130,29 @@ class Overlay extends Control:
 		draw_line(ship_at, ship_at + bow * 14.0, Color.WHITE, 2.0)
 		draw_circle(ship_at, 4.0, Color("ff5a4a"))
 		draw_rect(Rect2(origin, map_size), Color(1, 1, 1, 0.6), false, 2.0)
+
+	## A strip above the speed panel: the sheet runs from hauled in (left) to
+	## eased out (right). The green band is where the sail sets well for this
+	## heading, and it slides as the heading or wind changes. Keep the white
+	## marker inside it.
+	func _draw_trim_bar(font: Font, panel: Rect2, twa: float) -> void:
+		var bar := Rect2(panel.position.x + 60.0, panel.position.y - 40.0, panel.size.x - 120.0, 26.0)
+		draw_rect(Rect2(panel.position.x, bar.position.y - 6.0, panel.size.x, 38.0), Color(0, 0, 0, 0.5))
+		draw_string(font, Vector2(panel.position.x + 12.0, bar.position.y + 20.0), "IN", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
+		draw_string(font, Vector2(bar.end.x + 8.0, bar.position.y + 20.0), "OUT", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
+		draw_rect(bar, Color(1, 1, 1, 0.15))
+		var ideal: float = SailingModel.ideal_sheet_deg(twa)
+		var manual: bool = game.ship.manual_trim
+		# Within about 11 degrees of ideal, hand trim beats the automatic trim.
+		var good_from := inverse_lerp(5.0, 90.0, clampf(ideal - 11.0, 5.0, 90.0))
+		var good_to := inverse_lerp(5.0, 90.0, clampf(ideal + 11.0, 5.0, 90.0))
+		var band := Rect2(bar.position.x + bar.size.x * good_from, bar.position.y, bar.size.x * (good_to - good_from), bar.size.y)
+		draw_rect(band, Color(0.37, 0.89, 0.42, 0.75 if manual else 0.3))
+		var sheet_now: float = game.ship.sheet_deg if manual else ideal
+		var marker_x := bar.position.x + bar.size.x * inverse_lerp(5.0, 90.0, sheet_now)
+		draw_rect(Rect2(marker_x - 4.0, bar.position.y - 5.0, 8.0, bar.size.y + 10.0), Color.WHITE if manual else Color(1, 1, 1, 0.5))
+		if not manual:
+			draw_string(font, bar.position + Vector2(8.0, 19.0), "Automatic trim", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.7))
 
 	## Speed now, what this heading is worth, and why.
 	func _draw_speed_panel(font: Font) -> void:
@@ -1053,13 +1203,18 @@ class Overlay extends Control:
 		var tick_x := bar.position.x + bar.size.x * clampf(worth / best, 0.0, 1.0)
 		draw_line(Vector2(tick_x, bar.position.y - 5.0), Vector2(tick_x, bar.end.y + 5.0), Color.WHITE, 3.0)
 
-		draw_string(font, Vector2(x, y + 78.0), "%s: wind %d° off the bow" % [SailingModel.point_of_sail(twa), roundi(twa)],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+		var sailing_line := "%s: wind %d° off the bow" % [SailingModel.point_of_sail(twa), roundi(twa)]
+		var stream: Vector2 = World.current_kn(game.ship.position, game.now_hours())
+		if stream.length() > 0.2:
+			sailing_line += "   Tide %.1f kn to %s" % [stream.length(), Weather.compass_name(rad_to_deg(SailingModel.vector_to_bearing(stream)))]
+		draw_string(font, Vector2(x, y + 78.0), sailing_line, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+		_draw_trim_bar(font, panel, twa)
 		draw_string(font, Vector2(x, y + 106.0), "This heading is worth %.1f kn (her best is %.1f)" % [worth, best],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
 
-		var course: float = SailingModel.vector_to_bearing(game.ship.velocity) if speed > 0.05 else heading
-		var made_good: float = SailingModel.vmg_kn(speed, course, SailingModel.vector_to_bearing(to_target))
+		var over_ground: float = game.ship.ground_speed_kn()
+		var course: float = SailingModel.vector_to_bearing(game.ship.velocity) if over_ground > 0.05 else heading
+		var made_good: float = SailingModel.vmg_kn(over_ground, course, SailingModel.vector_to_bearing(to_target))
 		var progress := "Towards %s: %.1f kn" % [game.target_name(), made_good]
 		if made_good < 0.0:
 			progress = "Moving away from %s" % game.target_name()
@@ -1108,6 +1263,8 @@ func _save_game() -> void:
 		"best_times": best_times,
 		"plans": saved_plans,
 		"manual_trim": ship.manual_trim,
+		"clock_hours": clock_hours,
+		"damaged": ship.damaged,
 		"record_tracks": saved_records,
 		"ship_log": saved_log,
 	}))
@@ -1146,6 +1303,8 @@ func _load_game() -> void:
 	var port: String = str(data.get("port", "melbourne"))
 	current_port = port if World.PORTS.has(port) else "melbourne"
 	ship.manual_trim = bool(data.get("manual_trim", false))
+	clock_hours = float(data.get("clock_hours", 0.0))
+	ship.damaged = bool(data.get("damaged", false))
 	var times: Variant = data.get("best_times", {})
 	if typeof(times) == TYPE_DICTIONARY:
 		best_times = times

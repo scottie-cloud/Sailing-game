@@ -7,8 +7,8 @@ Built with [Godot 4.3](https://godotengine.org/download).
 
 ## Stage 1 (what exists now)
 
-- Port Phillip Bay, to scale, from real coastline data, with four ports:
-  Melbourne, Geelong, Queenscliff and Mornington. Mid-bay there is no land in
+- Port Phillip Bay, to scale, from real coastline data, with five ports:
+  Melbourne, Geelong, Queenscliff, Mornington and Barwon Heads. Mid-bay there is no land in
   sight, so you sail by the chart.
 - Choose your destination in port. Cargo is worth more the further it goes.
 - You steer, and the sails trim themselves. Switch to trimming by hand
@@ -27,6 +27,18 @@ Built with [Godot 4.3](https://godotengine.org/download).
   shows an estimated speed and time, and turns red if it points too close to
   the wind. Under sail the plan is drawn on the water and the game tracks
   whether you are ahead of or behind it.
+- A Pause button under sail.
+- A trim bar above the speed panel: a green band shows where the sail sets
+  well and slides as the heading or wind changes; keep the white marker in it.
+- The tide floods into the bay and ebbs out on a 12.4 hour cycle. It runs up
+  to 3 knots in the Rip and gently elsewhere. The chart shows its state, and
+  "Wait 1h" lets it turn before you leave.
+- Squalls cross the bay with the wind. The chart shows their forecast tracks.
+  Reef the sail before one hits: reefed she is slower in ordinary wind but
+  safe in a blow; overpowered for too long, a sail splits and she is slow
+  until repaired in port.
+- Barwon Heads, on the ocean coast outside the Heads, can only be reached
+  through the Rip and pays 40% more for cargo carried to or from it.
 - The wind is different each day in port and shifts during a passage, so a
   plan made in port needs adjusting at sea.
 - A ship's log records every passage with the course sailed. The course of
@@ -82,7 +94,7 @@ and the shoals are not shown.
 
 1. Steering (done)
 2. Manual sail trim (done)
-3. Changing weather: wind shifts, gusts, reefing
+3. Changing weather: wind shifts, squalls, reefing, tides (done)
 4. Longer routes with a forecast to plan around
 5. Bigger square-rigged ships
 

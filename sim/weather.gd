@@ -3,9 +3,10 @@ extends RefCounted
 ## around the prevailing breeze. Under sail the real wind drifts away from
 ## the forecast and back, so a plan made in port needs adjusting at sea.
 
-const PREVAILING_DEG := 70.0
-## The day's wind can come from this far either side of the prevailing direction.
-const DIRECTION_SPREAD_DEG := 90.0
+const PREVAILING_DEG := 225.0
+## The day's wind can come from any direction, but most often from near the
+## prevailing one.
+const DIRECTION_SPREAD_DEG := 180.0
 const MIN_KN := 8.0
 const MAX_KN := 16.0
 ## The most the wind swings away from the forecast during a passage.

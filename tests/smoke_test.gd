@@ -6,6 +6,9 @@ extends SceneTree
 const Trade = preload("res://sim/trade.gd")
 const World = preload("res://game/world.gd")
 
+## A mark in open water in the middle of the bay.
+const MARK := Vector2(9000, 7000)
+
 var failures := 0
 
 
@@ -49,13 +52,13 @@ func _run() -> void:
 	var tap := InputEventMouseButton.new()
 	tap.button_index = MOUSE_BUTTON_LEFT
 	tap.pressed = true
-	tap.position = game.chart.to_screen(Vector2(3500, 1200))
+	tap.position = game.chart.to_screen(MARK)
 	game.chart._gui_input(tap)
 	check(game.plan.size() == 1, "tapping the water adds a mark")
-	check(game.plan[0].distance_to(Vector2(3500, 1200)) < 5.0, "the mark lands where the chart was tapped")
-	game.chart.add_mark(Vector2(3500, 1750))
+	check(game.plan[0].distance_to(MARK) < 5.0, "the mark lands where the chart was tapped")
+	game.chart.add_mark(Vector2(2000, 2000))
 	check(game.plan.size() == 1, "a mark cannot be placed on land")
-	game.chart.add_mark(Vector2(2000, 2400))
+	game.chart.add_mark(Vector2(10000, 9000))
 	game.chart.undo()
 	check(game.plan.size() == 1, "undo removes the last mark")
 	check(game.chart.summary.text.contains("Route plan"), "the chart shows a plan summary")
@@ -65,7 +68,7 @@ func _run() -> void:
 
 	game._set_sail()
 	check(game.planned_hours > 0.0, "setting sail records the planned passage time")
-	check(game.target_point().distance_to(Vector2(3500, 1200)) < 5.0, "the first target is the planned mark")
+	check(game.target_point().distance_to(MARK) < 5.0, "the first target is the planned mark")
 	check(game.target_name() == "mark 1", "the first target is named as a mark")
 	await _frames(90)
 	check(game.is_sailing(), "the ship is under way after setting sail")
@@ -74,7 +77,7 @@ func _run() -> void:
 	check(not World.is_land(game.ship.position), "the ship leaves port into open water")
 
 	# Round the mark: the target moves on to the destination.
-	game.ship.position = Vector2(3500, 1200) + Vector2(60, 0)
+	game.ship.position = MARK + Vector2(60, 0)
 	await _frames(3)
 	check(game.next_mark == 1, "passing close to a mark rounds it")
 	check(game.target_point() == World.port_position(game.destination), "after the last mark the target is the destination")
@@ -107,9 +110,35 @@ func _run() -> void:
 	check(game.port_panel.visible, "closing the log returns to the port screen")
 
 	# Following a logged course turns it into a plan.
-	var course: Array[Vector2] = [dest_pos, Vector2(5000, 1200), Vector2(3500, 1200), World.port_position(origin)]
+	var course: Array[Vector2] = [dest_pos, Vector2(6000, 9000), Vector2(9000, 5000), World.port_position(origin)]
 	game.follow_track(course)
-	check(game.plan.size() == 2 and game.plan[0].distance_to(Vector2(5000, 1200)) < 5.0, "following a course plans its turning points")
+	check(game.plan.size() == 2 and game.plan[0].distance_to(Vector2(6000, 9000)) < 5.0, "following a course plans its turning points")
+
+	# The pilot's course goes on the chart as marks, and the destination can be changed.
+	game.open_chart()
+	game.chart.use_pilot()
+	check(game.chart.summary.text.contains("Route plan"), "the pilot course gives a plan")
+	game.close_chart()
+	var first_choice: String = game.destination
+	game._cycle_destination()
+	check(game.destination != first_choice and game.destination != game.current_port, "the destination can be changed")
+	check(game.route_distance_nm() > 5.0, "the new route has a sailing distance")
+	check(game.route_par() > 0.0, "the new route has a par time")
+
+	# Hand trim: the sheet buttons appear and the sheet starts where auto had it.
+	game._set_sail()
+	check(not game.haul_button.visible, "sheet buttons are hidden with automatic trim")
+	game._toggle_trim()
+	check(game.ship.manual_trim and game.haul_button.visible and game.ease_button.visible, "switching to hand trim shows the sheet buttons")
+	await _frames(30)
+	check(game.ship.trim_efficiency > 0.9, "the sail starts well set when taking over by hand")
+	game.ship.sheet_deg = 90.0 if game.ship.sheet_deg < 45.0 else 5.0
+	await _frames(5)
+	check(game.ship.trim_efficiency < 0.85, "a badly set sheet is worse than automatic trim")
+	game._toggle_trim()
+	await _frames(5)
+	check(not game.ship.manual_trim and not game.haul_button.visible, "switching back hides the sheet buttons")
+	check(game.is_sailing(), "the ship is still under way")
 	check(game.forecast_text() != "", "the port shows a wind forecast")
 	check(game.route_par() > 0.0, "the route has a par time for the day's wind")
 

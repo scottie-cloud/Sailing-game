@@ -17,6 +17,10 @@ var heading := 0.0
 var speed_kn := 0.0
 var hull_speed_kn := 7.0
 var trim_efficiency := SailingModel.AUTO_TRIM_EFFICIENCY
+## With manual trim the player sets the sheet: the boom's angle off the
+## centreline. Set well it beats the automatic trim; set badly it is slower.
+var manual_trim := false
+var sheet_deg := 45.0
 ## Pixels per game second, including leeway.
 var velocity := Vector2.ZERO
 
@@ -28,6 +32,10 @@ func step(dt: float, rudder: float, wind_from: float, wind_kn: float) -> void:
 
 	var side_angle := SailingModel.signed_wind_angle(heading, wind_from)
 	var twa := absf(rad_to_deg(side_angle))
+	if manual_trim:
+		trim_efficiency = SailingModel.trim_efficiency(sheet_deg, twa)
+	else:
+		trim_efficiency = SailingModel.AUTO_TRIM_EFFICIENCY
 	var target := SailingModel.target_speed_kn(twa, wind_kn, hull_speed_kn, trim_efficiency)
 	speed_kn = lerpf(target, speed_kn, exp(-dt / SPEED_TAU_S))
 

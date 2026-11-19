@@ -19,7 +19,14 @@ Built with [Godot 4.3](https://godotengine.org/download).
 - Profits buy a bigger hold and better sails. Each route records your best
   passage time.
 
-## Running it
+## Playing on a phone
+
+Every change merged to `main` is published as a browser version at
+https://scottie-cloud.github.io/Sailing-game/ (turn the phone sideways).
+This needs GitHub Pages switched on once: repository Settings, Pages,
+Source: GitHub Actions.
+
+## Running it on a computer
 
 1. Install Godot 4.3 or later (standard version, not .NET).
 2. Open Godot, choose **Import**, and select `project.godot` in this folder.
@@ -27,7 +34,7 @@ Built with [Godot 4.3](https://godotengine.org/download).
 
 Steer with the on-screen `<` `>` buttons, or the arrow keys / A and D.
 
-To put it on a phone, follow Godot's
+For an installable Android app, follow Godot's
 [Android export guide](https://docs.godotengine.org/en/4.3/tutorials/export/exporting_for_android.html).
 
 ## Tests
@@ -36,6 +43,7 @@ The sailing, trading and time rules are plain scripts in `sim/` with tests:
 
 ```bash
 godot --headless --path . -s tests/run_tests.gd
+godot --headless --path . -s tests/smoke_test.gd
 ```
 
 ## Layout

@@ -1155,6 +1155,8 @@ func _current_hint() -> String:
 	if _in_no_go():
 		return "Sails flapping! You can't sail straight into the wind. Steer out of the red zone."
 	if passage_seconds < 1200.0:
+		if deck_mode:
+			return "Hold < or > to steer. Bring the gold MARK pointer to the middle of the compass."
 		return "Hold < or > to steer. The gold arrow points to %s." % target_name()
 	var to_target := SailingModel.vector_to_bearing(target_point() - ship.position)
 	if not SailingModel.can_lay(SailingModel.true_wind_angle_deg(to_target, wind_from)):

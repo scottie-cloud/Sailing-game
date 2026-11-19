@@ -29,6 +29,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +55,26 @@ jobs:
           godot --headless --path . -s tests/smoke_test.gd 2>&1 | tee "$RUNNER_TEMP/smoke.log"
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/smoke.log"; then exit 1; fi
           grep -q "smoke: 0 failures" "$RUNNER_TEMP/smoke.log"
+
+      # Pictures of each screen, pushed to the ci-screenshots branch so layouts
+      # can be checked without a device. Never fails the build.
+      - name: Screenshots
+        continue-on-error: true
+        run: |
+          export SCREENSHOT_DIR="$RUNNER_TEMP/screenshots"
+          mkdir -p "$SCREENSHOT_DIR"
+          timeout 180 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
+            --resolution 1280x720 -s tests/screenshots.gd 2>&1 | tee "$RUNNER_TEMP/screenshots.log"
+          ls -la "$SCREENSHOT_DIR"
+          cp "$RUNNER_TEMP/screenshots.log" "$SCREENSHOT_DIR/log.txt"
+          cd "$SCREENSHOT_DIR"
+          git init -q -b ci-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader "$(git -C "$GITHUB_WORKSPACE" config --get http.https://github.com/.extraheader)"
+          git add .
+          git commit -qm "Screenshots for $GITHUB_SHA"
+          git push -f "$(git -C "$GITHUB_WORKSPACE" remote get-url origin)" ci-screenshots
 
       - name: Install web export templates
         run: |

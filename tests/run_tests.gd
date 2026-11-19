@@ -10,6 +10,9 @@ const RoutePlan = preload("res://sim/route_plan.gd")
 const Track = preload("res://sim/track.gd")
 const Weather = preload("res://sim/weather.gd")
 const Tide = preload("res://sim/tide.gd")
+const Shipyard = preload("res://sim/shipyard.gd")
+const Market = preload("res://sim/market.gd")
+const Contracts = preload("res://sim/contracts.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -44,6 +47,8 @@ func _init() -> void:
 	test_weather()
 	test_tide()
 	test_heavy_weather()
+	test_shipyard()
+	test_market_and_charters()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -157,10 +162,6 @@ func test_trade() -> void:
 	check(two_each, "each port sells two goods")
 	check(Trade.sale_price("timber", par, par, 30.0) > Trade.sale_price("timber", par, par, 15.0), "cargo is worth more the further it is carried")
 	check(Trade.sale_price("fish", par, par, 30.0) > Trade.sale_price("fish", par, par, 15.0), "perishables are worth more over distance too")
-	check(Trade.hold_capacity(1) > Trade.hold_capacity(0), "hold upgrade adds capacity")
-	check(Trade.upgrade_cost("hold", 1) > Trade.upgrade_cost("hold", 0), "upgrades get dearer")
-	check(Trade.upgrade_cost("sails", Trade.MAX_UPGRADE_LEVEL) == -1, "upgrades stop at the maximum level")
-	check(Trade.sail_bonus(2) > Trade.sail_bonus(0), "sail upgrade adds speed")
 
 
 func test_time_compression() -> void:
@@ -257,7 +258,7 @@ func test_route_plan() -> void:
 	var planned := RoutePlan.total_hours(zigzag)
 	check(absf(planned - float(beat["hours"])) < float(beat["hours"]) * 0.35, "planned zig-zag and the upwind estimate roughly agree")
 
-	var faster := RoutePlan.leg(start, start + across, wind_from, 12.0, 7.0 * Trade.sail_bonus(2), 0.85)
+	var faster := RoutePlan.leg(start, start + across, wind_from, 12.0, Shipyard.hull_speed_kn("cutter", 2), 0.85)
 	check(float(faster["hours"]) < float(reach["hours"]), "better sails shorten the estimate")
 	check(near(RoutePlan.leg(start, start, wind_from, 12.0, 7.0, 0.85)["hours"], 0.0), "a zero-length leg takes no time")
 
@@ -416,3 +417,79 @@ func test_heavy_weather() -> void:
 		with_squalls += 1 if not rolled.is_empty() else 0
 		check(rolled.size() <= 2, "at most two squalls a day")
 	check(with_squalls > 30 and with_squalls < 90, "some days have squalls and some do not")
+
+
+func test_shipyard() -> void:
+	check(Shipyard.hold_capacity("cutter", 0) == 10 and Shipyard.hold_capacity("cutter", 1) == 15, "the hold upgrade adds capacity")
+	check(Shipyard.hold_capacity("ketch", 0) > Shipyard.hold_capacity("cutter", 3), "a ketch out-carries a fully upgraded cutter")
+	check(near(Shipyard.hull_speed_kn("cutter", 0), 7.0) and Shipyard.hull_speed_kn("cutter", 2) > 7.0, "better sails add speed")
+	check(Shipyard.hull_speed_kn("schooner", 0) > Shipyard.hull_speed_kn("ketch", 0), "bigger ships are faster")
+	check(Shipyard.turn_factor("schooner") < Shipyard.turn_factor("ketch") and Shipyard.turn_factor("ketch") < Shipyard.turn_factor("cutter"), "bigger ships turn more slowly")
+	check(Shipyard.upgrade_cost("hold", 1) > Shipyard.upgrade_cost("hold", 0), "upgrades get dearer")
+	var capped := true
+	for kind in Shipyard.UPGRADE_ORDER:
+		capped = capped and Shipyard.upgrade_cost(kind, Shipyard.max_level(kind)) == -1 and Shipyard.upgrade_cost(kind, 0) > 0
+	check(capped and Shipyard.UPGRADE_ORDER.size() == Shipyard.UPGRADES.size(), "every upgrade has a price and a top level")
+	check(Shipyard.ship_cost("cutter", "ketch") == 700, "the first new ship costs its full price")
+	check(Shipyard.ship_cost("ketch", "schooner") == 1850, "the old ship is traded in at half price")
+	check(Shipyard.ship_cost("schooner", "cutter") < 0, "trading down pays money back")
+	check(near(Shipyard.leeway_factor(0), 1.0) and near(Shipyard.leeway_factor(2), 0.5625), "a deeper keel cuts sideways slip")
+	check(Shipyard.strain_limit_s("cutter", 2) > Shipyard.strain_limit_s("cutter", 0) * 1.9, "stronger rigging stands a blow longer")
+	check(Shipyard.SHIP_ORDER.size() == Shipyard.SHIPS.size() and Shipyard.SHIP_ORDER[0] == "cutter", "the ships are listed from smallest to largest")
+
+	# The ship's qualities change how she sails.
+	var plain := ShipState.new()
+	var deep_keel := ShipState.new()
+	deep_keel.leeway_factor = 0.5
+	for i in 1800:
+		plain.step(1.0, 0.0, EAST, 12.0)
+		deep_keel.step(1.0, 0.0, EAST, 12.0)
+	check(absf(deep_keel.position.x) < absf(plain.position.x) * 0.6, "a deeper keel slips sideways less")
+	var handy := ShipState.new()
+	var heavy := ShipState.new()
+	heavy.turn_factor = 0.65
+	handy.speed_kn = 5.0
+	heavy.speed_kn = 5.0
+	handy.step(10.0, 1.0, deg_to_rad(200.0), 12.0)
+	heavy.step(10.0, 1.0, deg_to_rad(200.0), 12.0)
+	check(heavy.heading < handy.heading * 0.7 and heavy.heading > 0.0, "a bigger ship turns more slowly")
+	var tough := ShipState.new()
+	tough.strain_limit_s = 3000.0
+	for i in 1500:
+		tough.step(1.0, 0.0, EAST, 24.0)
+	check(tough.overpowered and not tough.damaged, "stronger rigging has not split where the standard rig would")
+
+
+func test_market_and_charters() -> void:
+	check(near(Market.demand_factor("wool", "melbourne"), Market.WANTED_FACTOR) and near(Market.demand_factor("wool", "mornington"), 1.0), "a port pays more for what it wants")
+	check(near(Market.glut_factor(0.0), 1.0) and Market.glut_factor(20.0) < 1.0, "landing cargo lowers the price")
+	check(near(Market.glut_factor(1000.0), Market.GLUT_FLOOR), "a glutted market has a floor price")
+	check(near(Market.recovered(10.0, 4.0), 8.0) and near(Market.recovered(1.0, 100.0), 0.0), "the market recovers with time")
+	var goods_known := true
+	for good_id: String in Market.WANTED:
+		goods_known = goods_known and Trade.GOODS.has(good_id)
+		for port: String in Market.WANTED[good_id]:
+			goods_known = goods_known and World.PORTS.has(port) and Trade.GOODS[good_id]["origin"] != port
+	check(goods_known, "every wanted cargo exists and is wanted somewhere other than where it is sold")
+	check(Market.key("geelong", "wool") == "geelong:wool", "market entries are keyed by port and cargo")
+
+	var consistent := true
+	var ids := {}
+	for contract: Dictionary in Contracts.CONTRACTS:
+		ids[contract["id"]] = true
+		consistent = consistent and World.PORTS.has(contract["from"]) and World.PORTS.has(contract["to"]) and contract["from"] != contract["to"]
+		consistent = consistent and Trade.GOODS.has(contract["good"]) and Trade.GOODS[contract["good"]]["origin"] == contract["from"]
+		consistent = consistent and Contracts.by_id(contract["id"]) == contract
+	check(consistent, "every charter names real ports and a cargo sold where it starts")
+	check(ids.size() == Contracts.CONTRACTS.size(), "charter ids are unique")
+	check(Contracts.by_id("no such charter").is_empty(), "an unknown charter id gives nothing")
+	check(Contracts.offers_at("geelong").size() == 1 and Contracts.offers_at("melbourne").size() == 2, "charters are offered where they start")
+
+	var wool := Contracts.by_id("wool_clip")
+	check(Contracts.required_units(wool, 10) == 10 and Contracts.required_units(wool, 45) == 20, "a small ship is asked for a full hold, a big one for the whole order")
+	check(Contracts.bonus(wool, 45) > Contracts.bonus(wool, 10), "a bigger delivery earns a bigger bonus")
+	var deadline := Contracts.deadline_hours(wool, 8.0)
+	check(Contracts.is_met(wool, "geelong", "melbourne", 10, 10, deadline - 0.1, 8.0), "enough cargo on time fulfils the charter")
+	check(not Contracts.is_met(wool, "geelong", "melbourne", 10, 10, deadline + 0.1, 8.0), "arriving late misses the charter")
+	check(not Contracts.is_met(wool, "geelong", "melbourne", 9, 10, 1.0, 8.0), "too little cargo misses the charter")
+	check(not Contracts.is_met(wool, "geelong", "mornington", 10, 10, 1.0, 8.0), "the wrong port misses the charter")

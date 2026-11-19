@@ -1,6 +1,6 @@
 extends Node2D
 ## Stage 1 prototype: plan a route, steer a small boat between two ports,
-## sell cargo, buy upgrades. Visuals are drawn in code; the rules live in sim/.
+## sell cargo, take charters, buy ships and upgrades. Visuals are drawn in code; the rules live in sim/.
 
 const SailingModel = preload("res://sim/sailing_model.gd")
 const ShipState = preload("res://sim/ship_state.gd")
@@ -10,9 +10,13 @@ const RoutePlan = preload("res://sim/route_plan.gd")
 const Weather = preload("res://sim/weather.gd")
 const Track = preload("res://sim/track.gd")
 const Tide = preload("res://sim/tide.gd")
+const Shipyard = preload("res://sim/shipyard.gd")
+const Market = preload("res://sim/market.gd")
+const Contracts = preload("res://sim/contracts.gd")
 const World = preload("res://game/world.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
+const ListScreen = preload("res://game/list_screen.gd")
 
 const SAVE_PATH := "user://save.json"
 ## At 1x, one real second is one game minute.
@@ -66,8 +70,13 @@ var current_port := "melbourne"
 var destination := "geelong"
 var money := STARTING_MONEY
 var cargo := {}
-var hold_level := 0
-var sail_level := 0
+var ship_id := "cutter"
+var upgrade_levels := {"hold": 0, "sails": 0, "keel": 0, "rigging": 0}
+## Cargo recently landed at each port ("port:good" -> units): it depresses the price.
+var glut := {}
+## The charter taken on, if any, and how many times each has been completed.
+var active_contract := ""
+var completed_contracts := {}
 var best_times := {}
 
 ## Saved route plans: route key -> Array of Vector2 marks.
@@ -106,8 +115,9 @@ var port_money: Label
 var plan_label: Label
 var goods_box: VBoxContainer
 var goods_count_labels := {}
-var hold_button: Button
-var sails_button: Button
+var goods_name_labels := {}
+var shipyard_screen: ListScreen
+var contracts_screen: ListScreen
 var sail_button: Button
 var destination_button: Button
 var trim_button: Button
@@ -142,7 +152,15 @@ func _process(delta: float) -> void:
 # --- Route planning ----------------------------------------------------------
 
 func hull_speed() -> float:
-	return BASE_HULL_SPEED_KN * Trade.sail_bonus(sail_level)
+	return Shipyard.hull_speed_kn(ship_id, upgrade_level("sails"))
+
+
+func upgrade_level(kind: String) -> int:
+	return int(upgrade_levels.get(kind, 0))
+
+
+func hold_capacity() -> int:
+	return Shipyard.hold_capacity(ship_id, upgrade_level("hold"))
 
 
 func best_speed() -> float:
@@ -266,6 +284,127 @@ func follow_track(points: Array[Vector2]) -> void:
 	plan_changed()
 
 
+# --- Market, shipyard and charters -------------------------------------------
+
+## Everything that scales a cargo's price at a port: the route's premium,
+## whether the port wants it, and how much has been landed there lately.
+func market_factor(good_id: String, port: String) -> float:
+	var landed: float = glut.get(Market.key(port, good_id), 0.0)
+	return World.route_premium(current_port, port) * Market.demand_factor(good_id, port) * Market.glut_factor(landed)
+
+
+## What a unit should fetch at the destination after a passage on par.
+func expected_price(good_id: String) -> int:
+	var par := route_par()
+	return Trade.sale_price(good_id, par, par, route_distance_nm(), market_factor(good_id, destination))
+
+
+## Move the clock on: the tide turns and glutted markets recover.
+func _advance_clock(hours: float) -> void:
+	clock_hours += hours
+	for key: String in glut:
+		glut[key] = Market.recovered(glut[key], hours)
+
+
+func close_screens() -> void:
+	shipyard_screen.visible = false
+	contracts_screen.visible = false
+	port_panel.visible = true
+	_refresh_port_panel()
+
+
+func open_shipyard() -> void:
+	port_panel.visible = false
+	shipyard_screen.visible = true
+	_refresh_shipyard()
+
+
+func _refresh_shipyard() -> void:
+	var entries: Array[Dictionary] = []
+	for id in Shipyard.SHIP_ORDER:
+		var info: Dictionary = Shipyard.SHIPS[id]
+		var text := "%s: hold %d, top speed %.1f kn. %s" % [info["name"], info["hold"], info["hull_speed"], info["blurb"]]
+		if id == ship_id:
+			entries.append({"text": text + " This is your ship."})
+			continue
+		var cost := Shipyard.ship_cost(ship_id, id)
+		var button := "Buy $%d" % cost if cost >= 0 else "Swap, get $%d" % -cost
+		entries.append({"text": text, "button": button, "action": _buy_ship.bind(id), "disabled": money < cost or _cargo_units() > 0})
+	for kind in Shipyard.UPGRADE_ORDER:
+		var info: Dictionary = Shipyard.UPGRADES[kind]
+		var level := upgrade_level(kind)
+		var cost := Shipyard.upgrade_cost(kind, level)
+		var text := "%s (%s): level %d of %d." % [info["name"], info["effect"], level, info["max"]]
+		if cost < 0:
+			entries.append({"text": text + " Fully fitted."})
+		else:
+			entries.append({"text": text, "button": "Fit $%d" % cost, "action": _buy_upgrade.bind(kind), "disabled": money < cost})
+	var note := "You have $%d. Upgrades stay with you when you change ship." % money
+	if _cargo_units() > 0:
+		note += " Unload your cargo before changing ship."
+	shipyard_screen.show_rows(note, entries)
+
+
+func _buy_ship(id: String) -> void:
+	var cost := Shipyard.ship_cost(ship_id, id)
+	if money < cost or _cargo_units() > 0:
+		return
+	money -= cost
+	ship_id = id
+	_refresh_shipyard()
+	_save_game()
+
+
+func open_contracts() -> void:
+	port_panel.visible = false
+	contracts_screen.visible = true
+	_refresh_contracts()
+
+
+func _contract_terms(contract: Dictionary) -> String:
+	var good: Dictionary = Trade.GOODS[contract["good"]]
+	return "Carry %d %s to %s for a bonus of $%d." % [Contracts.required_units(contract, hold_capacity()),
+		good["name"], World.port_name(contract["to"]), Contracts.bonus(contract, hold_capacity())]
+
+
+func _refresh_contracts() -> void:
+	var entries: Array[Dictionary] = []
+	for contract in Contracts.offers_at(current_port):
+		var id: String = contract["id"]
+		var done := int(completed_contracts.get(id, 0))
+		var text := "%s. %s %s" % [contract["title"], contract["story"], _contract_terms(contract)]
+		if done > 0:
+			text += " Completed %d time%s." % [done, "" if done == 1 else "s"]
+		if id == active_contract:
+			entries.append({"text": text + " You have taken this charter.", "button": "Give up", "action": _accept_contract.bind("")})
+		else:
+			entries.append({"text": text, "button": "Accept", "action": _accept_contract.bind(id)})
+	var note := "Jobs drawn from the trading history of the bay. The time allowed is set by the day's wind when you sail."
+	if entries.is_empty():
+		note = "No charters are offered at this port today."
+	contracts_screen.show_rows(note, entries)
+
+
+## Take on a charter (or give it up with an empty id). The destination is set to match.
+func _accept_contract(id: String) -> void:
+	active_contract = id
+	if id != "":
+		var contract := Contracts.by_id(id)
+		destination = contract["to"]
+		plan = _points(plans.get(Trade.route_key(current_port, destination), []))
+		next_mark = 0
+	_refresh_contracts()
+	_save_game()
+
+
+## The charter in hand, if it starts at this port: otherwise an empty dictionary.
+func _current_contract() -> Dictionary:
+	var contract := Contracts.by_id(active_contract)
+	if contract.is_empty() or contract["from"] != current_port:
+		return {}
+	return contract
+
+
 func open_log() -> void:
 	port_panel.visible = false
 	log_screen.visible = true
@@ -311,7 +450,7 @@ func squalls_at(hours: float) -> Array[Dictionary]:
 
 ## Wait in port for the tide. The wind forecast stays as it is.
 func wait_hour() -> void:
-	clock_hours += 1.0
+	_advance_clock(1.0)
 	_refresh_port_panel()
 	_save_game()
 
@@ -480,6 +619,9 @@ func _set_sail() -> void:
 	ship.heading = bearing
 	ship.speed_kn = 2.0
 	ship.hull_speed_kn = hull_speed()
+	ship.turn_factor = Shipyard.turn_factor(ship_id)
+	ship.leeway_factor = Shipyard.leeway_factor(upgrade_level("keel"))
+	ship.strain_limit_s = Shipyard.strain_limit_s(ship_id, upgrade_level("rigging"))
 	last_safe_position = from_pos
 	passage_seconds = 0.0
 	time_scale = 1.0
@@ -488,6 +630,8 @@ func _set_sail() -> void:
 	port_panel.visible = false
 	chart.visible = false
 	log_screen.visible = false
+	shipyard_screen.visible = false
+	contracts_screen.visible = false
 	ship.sheet_deg = SailingModel.ideal_sheet_deg(ship.true_wind_angle_deg(wind_from))
 	ship.reefed = false
 	ship.strain_s = 0.0
@@ -525,8 +669,11 @@ func _arrive() -> void:
 		var units: int = cargo[good_id]
 		if units <= 0:
 			continue
-		var price := Trade.sale_price(good_id, hours, par, distance_nm, World.route_premium(current_port, destination))
+		var price := Trade.sale_price(good_id, hours, par, distance_nm, market_factor(good_id, destination))
 		var good: Dictionary = Trade.GOODS[good_id]
+		var glut_key := Market.key(destination, good_id)
+		var landed: float = glut.get(glut_key, 0.0)
+		glut[glut_key] = landed + units
 		var condition := ""
 		if good["perishable"]:
 			var multiplier := Trade.freshness_multiplier(hours, par)
@@ -536,19 +683,35 @@ func _arrive() -> void:
 				condition = " (good condition)"
 			else:
 				condition = " (past its best: sold cheap)"
-		lines.append("Sold %d %s at $%d each%s." % [units, good["name"], price, condition])
+		var market_note := ""
+		if Market.is_wanted(good_id, destination):
+			market_note += " In demand here."
+		if Market.glut_factor(landed) < 0.95:
+			market_note += " The market is glutted."
+		lines.append("Sold %d %s at $%d each%s.%s" % [units, good["name"], price, condition, market_note])
 		total += units * price
 	if total > 0:
 		lines.append("Takings: $%d." % total)
 	else:
 		lines.append("You arrived with an empty hold.")
+	var contract := _current_contract()
+	if not contract.is_empty():
+		var carried := int(cargo.get(contract["good"], 0))
+		if Contracts.is_met(contract, current_port, destination, carried, hold_capacity(), hours, par):
+			var reward := Contracts.bonus(contract, hold_capacity())
+			total += reward
+			completed_contracts[contract["id"]] = int(completed_contracts.get(contract["id"], 0)) + 1
+			lines.append("Charter fulfilled: %s. Bonus $%d." % [contract["title"], reward])
+		elif contract["to"] == destination:
+			lines.append("Charter missed: %s. No bonus this time." % contract["title"])
+		active_contract = ""
 	money += total
 	if ship.damaged:
 		var repair := mini(REPAIR_COST, money)
 		money -= repair
 		ship.damaged = false
 		lines.append("The split sail was repaired for $%d." % repair)
-	clock_hours += hours + TURNAROUND_HOURS
+	_advance_clock(hours + TURNAROUND_HOURS)
 	ship_log.push_front({
 		"from": current_port,
 		"to": destination,
@@ -591,6 +754,8 @@ func _enter_port(port: String, report: String) -> void:
 	port_panel.visible = true
 	chart.visible = false
 	log_screen.visible = false
+	shipyard_screen.visible = false
+	contracts_screen.visible = false
 	_show_sailing_controls(false)
 	_save_game()
 
@@ -615,7 +780,7 @@ func _change_cargo(good_id: String, amount: int) -> void:
 	var price: int = Trade.GOODS[good_id]["buy"]
 	var held: int = cargo.get(good_id, 0)
 	if amount > 0:
-		var space := Trade.hold_capacity(hold_level) - _cargo_units()
+		var space := hold_capacity() - _cargo_units()
 		amount = mini(amount, mini(space, money / price))
 	else:
 		amount = -mini(-amount, held)
@@ -625,36 +790,33 @@ func _change_cargo(good_id: String, amount: int) -> void:
 
 
 func _buy_upgrade(kind: String) -> void:
-	var level := hold_level if kind == "hold" else sail_level
-	var cost := Trade.upgrade_cost(kind, level)
+	var cost := Shipyard.upgrade_cost(kind, upgrade_level(kind))
 	if cost < 0 or money < cost:
 		return
 	money -= cost
-	if kind == "hold":
-		hold_level += 1
-	else:
-		sail_level += 1
-	_refresh_port_panel()
+	upgrade_levels[kind] = upgrade_level(kind) + 1
+	_refresh_shipyard()
 	_save_game()
 
 
-func _upgrade_text(label: String, kind: String, level: int) -> String:
-	var cost := Trade.upgrade_cost(kind, level)
-	if cost < 0:
-		return "%s: fully upgraded" % label
-	return "%s  $%d" % [label, cost]
-
-
 func _refresh_port_panel() -> void:
-	port_money.text = "Money: $%d     Hold: %d / %d" % [money, _cargo_units(), Trade.hold_capacity(hold_level)]
+	var ship_name: String = Shipyard.SHIPS[ship_id]["name"]
+	port_money.text = "Money: $%d     %s, hold %d / %d" % [money, ship_name, _cargo_units(), hold_capacity()]
 	plan_label.text = "Wind today: %s, shifting at sea. %s" % [forecast_text(), plan_summary(false)]
+	var contract := _current_contract()
+	if not contract.is_empty():
+		plan_label.text += " Charter: %s %s" % [contract["title"].to_lower(), _contract_terms(contract)]
+	for good_id: String in goods_name_labels:
+		var good: Dictionary = Trade.GOODS[good_id]
+		var notes := "spoils" if good["perishable"] else "keeps"
+		if Market.is_wanted(good_id, destination):
+			notes += ", in demand"
+		var name_label: Label = goods_name_labels[good_id]
+		name_label.text = "%s $%d. About $%d in %s (%s)" % [good["name"], good["buy"], expected_price(good_id),
+			World.port_name(destination), notes]
 	for good_id: String in goods_count_labels:
 		var count_label: Label = goods_count_labels[good_id]
 		count_label.text = str(int(cargo.get(good_id, 0)))
-	hold_button.text = _upgrade_text("Bigger hold (+%d)" % Trade.HOLD_PER_LEVEL, "hold", hold_level)
-	hold_button.disabled = Trade.upgrade_cost("hold", hold_level) < 0 or money < Trade.upgrade_cost("hold", hold_level)
-	sails_button.text = _upgrade_text("Better sails (+6% speed)", "sails", sail_level)
-	sails_button.disabled = Trade.upgrade_cost("sails", sail_level) < 0 or money < Trade.upgrade_cost("sails", sail_level)
 	var key := Trade.route_key(current_port, destination)
 	var record := "no passage yet"
 	if best_times.has(key):
@@ -669,15 +831,18 @@ func _rebuild_goods_rows() -> void:
 	for child in goods_box.get_children():
 		child.queue_free()
 	goods_count_labels.clear()
+	goods_name_labels.clear()
 	for good_id in Trade.goods_sold_at(current_port):
 		var good: Dictionary = Trade.GOODS[good_id]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		var kind := "spoils: pays more for a fast passage" if good["perishable"] else "keeps: small steady profit"
 		var name_label := Label.new()
-		name_label.text = "%s  $%d  (%s)" % [good["name"], good["buy"], kind]
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.custom_minimum_size = Vector2(420, 0)
+		name_label.add_theme_font_size_override("font_size", 20)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_label)
+		goods_name_labels[good_id] = name_label
 		row.add_child(_make_button("-", _change_cargo.bind(good_id, -1), 60))
 		var count_label := Label.new()
 		count_label.custom_minimum_size = Vector2(44, 0)
@@ -821,19 +986,28 @@ func _build_ui() -> void:
 	pause_button.add_theme_font_size_override("font_size", 20)
 	root.add_child(pause_button)
 
+	# The port screen fills the height of the screen and scrolls if it has to.
 	port_panel = PanelContainer.new()
-	port_panel.set_anchors_preset(Control.PRESET_CENTER)
-	port_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	port_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	port_panel.custom_minimum_size = Vector2(860, 0)
+	port_panel.anchor_left = 0.5
+	port_panel.anchor_right = 0.5
+	port_panel.anchor_top = 0.0
+	port_panel.anchor_bottom = 1.0
+	port_panel.offset_left = -450
+	port_panel.offset_right = 450
+	port_panel.offset_top = 8
+	port_panel.offset_bottom = -8
 	root.add_child(port_panel)
 	var margin := MarginContainer.new()
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		margin.add_theme_constant_override(side, 20)
+		margin.add_theme_constant_override(side, 18)
 	port_panel.add_child(margin)
+	var port_scroll := ScrollContainer.new()
+	port_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	margin.add_child(port_scroll)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
-	margin.add_child(box)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	port_scroll.add_child(box)
 
 	port_title = Label.new()
 	port_title.add_theme_font_size_override("font_size", 34)
@@ -851,26 +1025,19 @@ func _build_ui() -> void:
 	box.add_child(goods_box)
 	box.add_child(HSeparator.new())
 
-	var plan_row := HBoxContainer.new()
-	plan_row.add_theme_constant_override("separation", 12)
 	plan_label = Label.new()
 	plan_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	plan_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	plan_label.custom_minimum_size = Vector2(810, 0)
 	plan_label.add_theme_font_size_override("font_size", 20)
-	plan_row.add_child(plan_label)
-	plan_row.add_child(_make_button("Plan route", open_chart, 150))
-	plan_row.add_child(_make_button("Ship's log", open_log, 150))
-	box.add_child(plan_row)
+	box.add_child(plan_label)
+	var menu := HBoxContainer.new()
+	menu.add_theme_constant_override("separation", 12)
+	for item: Array in [["Plan route", open_chart], ["Charters", open_contracts], ["Shipyard", open_shipyard], ["Ship's log", open_log]]:
+		var menu_button := _make_button(item[0], item[1], 0)
+		menu_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		menu.add_child(menu_button)
+	box.add_child(menu)
 
-	var upgrades := HBoxContainer.new()
-	upgrades.add_theme_constant_override("separation", 12)
-	hold_button = _make_button("", _buy_upgrade.bind("hold"), 0)
-	hold_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sails_button = _make_button("", _buy_upgrade.bind("sails"), 0)
-	sails_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	upgrades.add_child(hold_button)
-	upgrades.add_child(sails_button)
-	box.add_child(upgrades)
 	var departure := HBoxContainer.new()
 	departure.add_theme_constant_override("separation", 12)
 	destination_button = _make_button("", _cycle_destination, 400)
@@ -892,6 +1059,16 @@ func _build_ui() -> void:
 	log_screen.setup(self)
 	log_screen.visible = false
 	root.add_child(log_screen)
+
+	shipyard_screen = ListScreen.new()
+	shipyard_screen.setup(self, "Shipyard")
+	shipyard_screen.visible = false
+	root.add_child(shipyard_screen)
+
+	contracts_screen = ListScreen.new()
+	contracts_screen.setup(self, "Charters")
+	contracts_screen.visible = false
+	root.add_child(contracts_screen)
 
 
 func _show_notice(text: String, seconds: float) -> void:
@@ -1054,7 +1231,8 @@ func _draw_ship() -> void:
 	draw_string(ThemeDB.fallback_font, tip + direction * 34.0 + Vector2(-60, 8),
 		"%.1f nm" % (to_target.length() / ShipState.PX_PER_NM), HORIZONTAL_ALIGNMENT_CENTER, 120, 22, GOLD)
 
-	draw_set_transform(ship.position, ship.heading, Vector2.ONE)
+	var ship_size: float = Shipyard.SHIPS[ship_id]["size"]
+	draw_set_transform(ship.position, ship.heading, Vector2(ship_size, ship_size))
 	var hull := PackedVector2Array([Vector2(0, -36), Vector2(11, -14), Vector2(12, 18), Vector2(7, 30),
 		Vector2(-7, 30), Vector2(-12, 18), Vector2(-11, -14)])
 	draw_colored_polygon(hull, Color("6b4423"))
@@ -1258,8 +1436,11 @@ func _save_game() -> void:
 	file.store_string(JSON.stringify({
 		"money": money,
 		"port": current_port,
-		"hold_level": hold_level,
-		"sail_level": sail_level,
+		"ship": ship_id,
+		"upgrades": upgrade_levels,
+		"glut": glut,
+		"active_contract": active_contract,
+		"completed_contracts": completed_contracts,
 		"best_times": best_times,
 		"plans": saved_plans,
 		"manual_trim": ship.manual_trim,
@@ -1298,8 +1479,26 @@ func _load_game() -> void:
 	if typeof(data) != TYPE_DICTIONARY:
 		return
 	money = int(data.get("money", STARTING_MONEY))
-	hold_level = clampi(int(data.get("hold_level", 0)), 0, Trade.MAX_UPGRADE_LEVEL)
-	sail_level = clampi(int(data.get("sail_level", 0)), 0, Trade.MAX_UPGRADE_LEVEL)
+	var saved_ship: String = str(data.get("ship", "cutter"))
+	ship_id = saved_ship if Shipyard.SHIPS.has(saved_ship) else "cutter"
+	var saved_upgrades: Variant = data.get("upgrades", {})
+	if typeof(saved_upgrades) != TYPE_DICTIONARY:
+		saved_upgrades = {}
+	# Saves from before the shipyard kept the two upgrades under their own names.
+	var legacy := {"hold": data.get("hold_level", 0), "sails": data.get("sail_level", 0)}
+	for kind in Shipyard.UPGRADE_ORDER:
+		var level := int(saved_upgrades.get(kind, legacy.get(kind, 0)))
+		upgrade_levels[kind] = clampi(level, 0, Shipyard.max_level(kind))
+	var saved_glut: Variant = data.get("glut", {})
+	if typeof(saved_glut) == TYPE_DICTIONARY:
+		for key: String in saved_glut:
+			glut[key] = float(saved_glut[key])
+	var saved_contract: String = str(data.get("active_contract", ""))
+	active_contract = saved_contract if not Contracts.by_id(saved_contract).is_empty() else ""
+	var saved_completed: Variant = data.get("completed_contracts", {})
+	if typeof(saved_completed) == TYPE_DICTIONARY:
+		for key: String in saved_completed:
+			completed_contracts[key] = int(saved_completed[key])
 	var port: String = str(data.get("port", "melbourne"))
 	current_port = port if World.PORTS.has(port) else "melbourne"
 	ship.manual_trim = bool(data.get("manual_trim", false))

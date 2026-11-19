@@ -44,7 +44,15 @@ Built with [Godot 4.3](https://godotengine.org/download).
 - A ship's log records every passage with the course sailed. The course of
   the best passage on a route is drawn on the chart and can be loaded as the
   plan with one tap.
-- Profits buy a bigger hold and better sails. Each route records your best
+- The port shows what each cargo should fetch at your destination. Some ports
+  want particular goods and pay more; landing a lot of one cargo gluts the
+  market for a while.
+- Charters: paid jobs drawn from the bay's trading history (the Geelong wool
+  clip, tools for the Ballarat diggings, the Queenscliff couta boats' race to
+  market, lime and timber for early Melbourne). Deliver enough of the cargo
+  in the time allowed for a bonus.
+- A shipyard: three ships (cutter, ketch, schooner) and four upgrades (hold,
+  sails, keel, rigging). Each route records your best
   passage time.
 
 ## Playing on a phone
@@ -76,8 +84,9 @@ godot --headless --path . -s tests/smoke_test.gd
 
 ## Layout
 
-- `sim/` game rules with no visuals: sailing maths, ship motion, trade,
-  route estimates, time compression, and the list of learning stages.
+- `sim/` game rules with no visuals: sailing maths, ship motion, weather,
+  tides, trade, the market, charters, the shipyard, route estimates and
+  time compression.
 - `game/` the map, the planning chart, the ship's log and the playable scene
   (drawn in code).
 - `tools/` the script that builds the map from coastline data.

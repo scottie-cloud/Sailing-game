@@ -7,11 +7,15 @@ Built with [Godot 4.3](https://godotengine.org/download).
 
 ## Stage 1 (what exists now)
 
-- One bay, two ports (Port Haven and Eastpoint), one small boat, steady wind.
-- You only steer; the sails trim themselves.
+- Port Phillip Bay, to scale, from real coastline data, with four ports:
+  Melbourne, Geelong, Queenscliff and Mornington. Mid-bay there is no land in
+  sight, so you sail by the chart.
+- Choose your destination in port. Cargo is worth more the further it goes.
+- You steer, and the sails trim themselves. Switch to trimming by hand
+  ("Trim: by hand", then Haul in / Ease out) and a well-set sail is faster
+  than the automatic trim; a badly set one is slower.
 - A red wedge shows the no-go zone: you cannot sail straight into the wind.
-  Port Haven to Eastpoint is upwind, so you have to zig-zag (tack). The trip
-  back is a fast downwind run.
+  When your destination is upwind you have to zig-zag (tack) towards it.
 - Time runs up to 6x faster on open water and drops to normal when you steer,
   get stuck head to wind, or come near land or your destination.
 - Each port sells one cargo that spoils (pays a premium for a fast passage,
@@ -23,6 +27,11 @@ Built with [Godot 4.3](https://godotengine.org/download).
   shows an estimated speed and time, and turns red if it points too close to
   the wind. Under sail the plan is drawn on the water and the game tracks
   whether you are ahead of or behind it.
+- The wind is different each day in port and shifts during a passage, so a
+  plan made in port needs adjusting at sea.
+- A ship's log records every passage with the course sailed. The course of
+  the best passage on a route is drawn on the chart and can be loaded as the
+  plan with one tap.
 - Profits buy a bigger hold and better sails. Each route records your best
   passage time.
 
@@ -57,13 +66,22 @@ godot --headless --path . -s tests/smoke_test.gd
 
 - `sim/` game rules with no visuals: sailing maths, ship motion, trade,
   route estimates, time compression, and the list of learning stages.
-- `game/` the map, the planning chart and the playable scene (drawn in code).
+- `game/` the map, the planning chart, the ship's log and the playable scene
+  (drawn in code).
+- `tools/` the script that builds the map from coastline data.
 - `tests/` headless tests.
+
+## Map data
+
+The coastline comes from Natural Earth 1:10m land polygons (public domain),
+converted by `tools/build_bay.py` into `game/bay_data.gd`. At that scale the
+bay is recognisable but coarse: small features such as Swan Bay, Mud Islands
+and the shoals are not shown.
 
 ## Planned stages
 
-1. Steering (this prototype)
-2. Manual sail trim: faster than the automatic trim if you get it right
+1. Steering (done)
+2. Manual sail trim (done)
 3. Changing weather: wind shifts, gusts, reefing
 4. Longer routes with a forecast to plan around
 5. Bigger square-rigged ships

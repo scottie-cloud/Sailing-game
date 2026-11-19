@@ -1,16 +1,22 @@
 extends RefCounted
 ## Cargo, prices and ship upgrades. Perishable cargo is what makes speed pay:
 ## it sells for a premium after a fast passage and at a loss after a slow one.
+## Every cargo is worth more the further it has been carried.
 
 const GOODS := {
-	"fish": {"name": "Fresh fish", "origin": "haven", "perishable": true, "buy": 8, "sell": 12},
-	"timber": {"name": "Timber", "origin": "haven", "perishable": false, "buy": 10, "sell": 13},
-	"fruit": {"name": "Fruit", "origin": "eastpoint", "perishable": true, "buy": 9, "sell": 13},
-	"wool": {"name": "Wool", "origin": "eastpoint", "perishable": false, "buy": 10, "sell": 13},
+	"newspapers": {"name": "Newspapers", "origin": "melbourne", "perishable": true, "buy": 8},
+	"tools": {"name": "Tools", "origin": "melbourne", "perishable": false, "buy": 10},
+	"butter": {"name": "Butter", "origin": "geelong", "perishable": true, "buy": 9},
+	"wool": {"name": "Wool", "origin": "geelong", "perishable": false, "buy": 10},
+	"fish": {"name": "Fresh fish", "origin": "queenscliff", "perishable": true, "buy": 8},
+	"rope": {"name": "Rope", "origin": "queenscliff", "perishable": false, "buy": 10},
+	"fruit": {"name": "Fruit", "origin": "mornington", "perishable": true, "buy": 9},
+	"timber": {"name": "Timber", "origin": "mornington", "perishable": false, "buy": 10},
 }
 
-## A competent stage 1 passage, in game hours. Haven to Eastpoint is upwind.
-const PAR_HOURS := {"haven>eastpoint": 9.0, "eastpoint>haven": 3.6}
+## Par for a passage is this multiple of the pilot-route estimate in the
+## day's forecast wind: room for the tacks and a beginner's helm.
+const PAR_FACTOR := 1.2
 
 const FAST_FRACTION := 0.85
 const SLOW_FRACTION := 1.75
@@ -28,8 +34,8 @@ static func route_key(from_port: String, to_port: String) -> String:
 	return "%s>%s" % [from_port, to_port]
 
 
-static func par_hours(from_port: String, to_port: String) -> float:
-	return PAR_HOURS.get(route_key(from_port, to_port), 5.0)
+static func par_from_estimate(route_hours: float) -> float:
+	return route_hours * PAR_FACTOR
 
 
 static func goods_sold_at(port: String) -> Array[String]:
@@ -46,11 +52,19 @@ static func freshness_multiplier(hours: float, par: float) -> float:
 	return lerpf(FAST_MULTIPLIER, SLOW_MULTIPLIER, t)
 
 
-## Price per unit at the destination.
-static func sale_price(good_id: String, hours: float, par: float) -> int:
+## What a unit is worth at a port this far away, before freshness.
+static func base_sale_price(good_id: String, distance_nm: float) -> float:
 	var good: Dictionary = GOODS[good_id]
-	var base: float = good["sell"]
+	var buy: float = good["buy"]
 	if good["perishable"]:
+		return buy * (1.2 + 0.02 * distance_nm)
+	return buy * (1.15 + 0.01 * distance_nm)
+
+
+## Price per unit at the destination.
+static func sale_price(good_id: String, hours: float, par: float, distance_nm: float) -> int:
+	var base := base_sale_price(good_id, distance_nm)
+	if GOODS[good_id]["perishable"]:
 		return roundi(base * freshness_multiplier(hours, par))
 	return roundi(base)
 

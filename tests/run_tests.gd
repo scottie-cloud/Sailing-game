@@ -7,6 +7,8 @@ const ShipState = preload("res://sim/ship_state.gd")
 const Trade = preload("res://sim/trade.gd")
 const TimeCompression = preload("res://sim/time_compression.gd")
 const RoutePlan = preload("res://sim/route_plan.gd")
+const Track = preload("res://sim/track.gd")
+const Weather = preload("res://sim/weather.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -37,6 +39,8 @@ func _init() -> void:
 	test_world()
 	test_speed_explanations()
 	test_route_plan()
+	test_track()
+	test_weather()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -106,6 +110,22 @@ func test_ship_motion() -> void:
 	turning.step(10.0, 1.0, deg_to_rad(200.0), 12.0)
 	check(turning.heading > 0.0 and turning.heading < PI, "right rudder turns clockwise")
 
+	# Hand trim: set well it beats the automatic trim, set badly it is slower.
+	var auto := ShipState.new()
+	var well_set := ShipState.new()
+	well_set.manual_trim = true
+	well_set.sheet_deg = SailingModel.ideal_sheet_deg(90.0)
+	var badly_set := ShipState.new()
+	badly_set.manual_trim = true
+	badly_set.sheet_deg = 10.0
+	for i in 3600:
+		auto.step(1.0, 0.0, EAST, 12.0)
+		well_set.step(1.0, 0.0, EAST, 12.0)
+		badly_set.step(1.0, 0.0, EAST, 12.0)
+	check(well_set.speed_kn > auto.speed_kn * 1.1, "well-set hand trim is faster than automatic trim")
+	check(badly_set.speed_kn < auto.speed_kn, "badly set hand trim is slower than automatic trim")
+	check(near(well_set.trim_efficiency, 1.0) and near(auto.trim_efficiency, SailingModel.AUTO_TRIM_EFFICIENCY), "trim efficiency is reported")
+
 	# Time compression must not change the outcome much.
 	var fine := ShipState.new()
 	var coarse := ShipState.new()
@@ -117,18 +137,23 @@ func test_ship_motion() -> void:
 
 
 func test_trade() -> void:
-	var par := Trade.par_hours("haven", "eastpoint")
-	var fast := Trade.sale_price("fish", par * 0.8, par)
-	var on_par := Trade.sale_price("fish", par, par)
-	var slow := Trade.sale_price("fish", par * 2.0, par)
+	var par := 9.0
+	var fast := Trade.sale_price("fish", par * 0.8, par, 15.0)
+	var on_par := Trade.sale_price("fish", par, par, 15.0)
+	var slow := Trade.sale_price("fish", par * 2.0, par, 15.0)
 	var cost: int = Trade.GOODS["fish"]["buy"]
 	check(fast > on_par and on_par > slow, "perishable cargo pays more the faster it arrives")
 	check(on_par > cost, "a par passage with perishables is profitable")
 	check(slow < cost, "a slow passage with perishables loses money")
-	check(Trade.sale_price("timber", par * 0.5, par) == Trade.sale_price("timber", par * 3.0, par), "durable cargo ignores passage time")
-	check(Trade.sale_price("timber", par, par) > int(Trade.GOODS["timber"]["buy"]), "durable cargo makes a small profit")
-	check(fast - cost > Trade.sale_price("timber", par, par) - int(Trade.GOODS["timber"]["buy"]), "a fast perishable run beats the safe cargo")
-	check(Trade.goods_sold_at("haven").size() == 2 and Trade.goods_sold_at("eastpoint").size() == 2, "each port sells two goods")
+	check(Trade.sale_price("timber", par * 0.5, par, 15.0) == Trade.sale_price("timber", par * 3.0, par, 15.0), "durable cargo ignores passage time")
+	check(Trade.sale_price("timber", par, par, 15.0) > int(Trade.GOODS["timber"]["buy"]), "durable cargo makes a small profit")
+	check(fast - cost > Trade.sale_price("timber", par, par, 15.0) - int(Trade.GOODS["timber"]["buy"]), "a fast perishable run beats the safe cargo")
+	var two_each := true
+	for port: String in World.PORTS:
+		two_each = two_each and Trade.goods_sold_at(port).size() == 2
+	check(two_each, "each port sells two goods")
+	check(Trade.sale_price("timber", par, par, 30.0) > Trade.sale_price("timber", par, par, 15.0), "cargo is worth more the further it is carried")
+	check(Trade.sale_price("fish", par, par, 30.0) > Trade.sale_price("fish", par, par, 15.0), "perishables are worth more over distance too")
 	check(Trade.hold_capacity(1) > Trade.hold_capacity(0), "hold upgrade adds capacity")
 	check(Trade.upgrade_cost("hold", 1) > Trade.upgrade_cost("hold", 0), "upgrades get dearer")
 	check(Trade.upgrade_cost("sails", Trade.MAX_UPGRADE_LEVEL) == -1, "upgrades stop at the maximum level")
@@ -149,24 +174,41 @@ func test_time_compression() -> void:
 
 
 func test_world() -> void:
-	var haven := World.port_position("haven")
-	var eastpoint := World.port_position("eastpoint")
-	check(not World.is_land(haven) and not World.is_land(eastpoint), "ports are in the water")
-	check(World.distance_to_land(haven) > 60.0 and World.distance_to_land(eastpoint) > 60.0, "ports have room to dock")
-	check(World.is_land(Vector2(3500, 1750)), "the island is land")
-	check(World.distance_to_land(Vector2(3500, 1200)) > 300.0, "there is a clear channel north of the island")
-	check(World.other_port("haven") == "eastpoint" and World.other_port("eastpoint") == "haven", "the two ports are each other's destination")
+	var water := Vector2(11000, 8000)
+	var inland := Vector2(2000, 2000)
+	check(not World.is_land(water) and World.is_land(inland), "the middle of the bay is water and the north-west is land")
+	check(World.is_blocked(Vector2(-10, 100)) and World.is_blocked(inland) and not World.is_blocked(water), "land and off-chart are both blocked")
+	check(World.distance_to_land(water) > 2000.0, "the middle of the bay is well clear of land")
+	check(World.triangles().size() % 3 == 0 and World.triangles().size() > 0, "the land is cut into triangles")
 
-	var crosses_island := false
-	for i in 101:
-		crosses_island = crosses_island or World.is_land(haven.lerp(eastpoint, i / 100.0))
-	check(crosses_island, "the straight line between ports is blocked by the island")
+	# The map is to scale: Melbourne sits where Williamstown really is.
+	var williamstown := World.lonlat_to_px(144.90, -37.87)
+	check(World.port_position("melbourne").distance_to(williamstown) < 1200.0, "Melbourne is within three miles of its real position")
+	check(near(World.lonlat_to_px(144.30, -37.78).length(), 0.0, 1.0), "the chart's top-left corner is its north-west limit")
 
-	var wind_from := deg_to_rad(World.WIND_FROM_DEG)
-	var outward := SailingModel.vector_to_bearing(eastpoint - haven)
-	check(SailingModel.in_no_go(SailingModel.true_wind_angle_deg(outward, wind_from)), "Haven to Eastpoint is upwind, so it needs tacking")
-	var homeward := SailingModel.vector_to_bearing(haven - eastpoint)
-	check(SailingModel.true_wind_angle_deg(homeward, wind_from) > 120.0, "Eastpoint to Haven is a downwind run")
+	var roomy := true
+	var routes_ok := true
+	for port: String in World.PORTS:
+		var position := World.port_position(port)
+		roomy = roomy and not World.is_blocked(position) and World.distance_to_land(position) > 200.0
+		check(World.destinations(port).size() == World.PORTS.size() - 1 and not World.destinations(port).has(port), "every other port is a destination")
+		for other in World.destinations(port):
+			var route := World.pilot_route(port, other)
+			var straight := position.distance_to(World.port_position(other)) / 400.0
+			routes_ok = routes_ok and route.size() >= 2 and route[0] == position and route[route.size() - 1] == World.port_position(other)
+			routes_ok = routes_ok and World.route_length_nm(route) >= straight - 0.01 and World.route_length_nm(route) < straight * 3.0
+			for i in range(1, route.size()):
+				routes_ok = routes_ok and not World.segment_crosses_land(route[i - 1], route[i], 100.0)
+	check(roomy, "every port is in the water with room to dock")
+	check(routes_ok, "every pair of ports has a pilot route that stays off the land")
+
+	var geelong := World.port_position("geelong")
+	var queenscliff := World.port_position("queenscliff")
+	check(World.segment_crosses_land(geelong, queenscliff), "the straight line from Geelong to Queenscliff crosses the Bellarine Peninsula")
+	var around := World.pilot_route("geelong", "queenscliff")
+	check(around.size() > 2, "the pilot route from Geelong to Queenscliff goes around the peninsula")
+	check(World.route_length_nm(around) > geelong.distance_to(queenscliff) / 400.0 * 1.3, "going around is a good deal further than the straight line")
+	check(World.pilot_route("geelong", "queenscliff") == around, "pilot routes are repeatable")
 
 
 func test_speed_explanations() -> void:
@@ -216,8 +258,68 @@ func test_route_plan() -> void:
 	check(float(faster["hours"]) < float(reach["hours"]), "better sails shorten the estimate")
 	check(near(RoutePlan.leg(start, start, wind_from, 12.0, 7.0, 0.85)["hours"], 0.0), "a zero-length leg takes no time")
 
-	var haven := World.port_position("haven")
-	var eastpoint := World.port_position("eastpoint")
-	check(World.segment_crosses_land(haven, eastpoint), "the direct route is flagged as crossing land")
-	check(not World.segment_crosses_land(Vector2(1500, 1200), Vector2(5500, 1200)), "the north channel is clear")
-	check(World.in_bounds(haven) and not World.in_bounds(Vector2(-10, 100)), "bounds check")
+	check(not World.segment_crosses_land(Vector2(10000, 7000), Vector2(13000, 9000)), "a line across open water is clear")
+	check(World.segment_crosses_land(Vector2(11000, 8000), Vector2(11000, -500)), "a line off the chart is not clear")
+
+
+func test_track() -> void:
+	# A dog-leg with small wobbles along each straight.
+	var sailed: Array[Vector2] = []
+	for i in 11:
+		sailed.append(Vector2(i * 100.0, (i % 2) * 6.0))
+	for i in range(1, 11):
+		sailed.append(Vector2(1000.0 + (i % 2) * 6.0, i * 100.0))
+	var simplified := Track.simplify(sailed, 25.0)
+	check(simplified.size() == 3, "a wobbly dog-leg simplifies to start, corner and end")
+	check(simplified[0] == sailed[0] and simplified[2] == sailed[sailed.size() - 1], "simplifying keeps the start and end")
+	check(simplified[1].distance_to(Vector2(1000, 0)) < 20.0, "simplifying keeps the corner")
+	var marks := Track.to_marks(sailed, 12)
+	check(marks.size() == 1 and marks[0].distance_to(Vector2(1000, 0)) < 20.0, "a dog-leg becomes one mark at the corner")
+
+	var two: Array[Vector2] = [Vector2.ZERO, Vector2(500, 0)]
+	check(Track.simplify(two, 25.0).size() == 2 and Track.to_marks(two, 12).is_empty(), "a straight run has no marks")
+
+	# A long zig-zag has more corners than marks allowed; it is cut down to fit.
+	var zigzag: Array[Vector2] = []
+	for i in 41:
+		zigzag.append(Vector2(i * 150.0, (i % 2) * 300.0 + i * 5.0))
+	var limited := Track.to_marks(zigzag, 12)
+	check(limited.size() <= 12, "marks are limited to the maximum")
+
+
+func test_weather() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 12345
+	var first := Weather.roll(rng)
+	rng.seed = 12345
+	var again := Weather.roll(rng)
+	check(first["from_deg"] == again["from_deg"] and first["kn"] == again["kn"], "the same seed gives the same forecast")
+
+	var in_range := true
+	var directions_differ := false
+	var shifts := false
+	var bounded := true
+	for i in 200:
+		var forecast := Weather.roll(rng)
+		var from_deg: float = forecast["from_deg"]
+		var kn: float = forecast["kn"]
+		var off_prevailing := absf(wrapf(from_deg - Weather.PREVAILING_DEG, -180.0, 180.0))
+		in_range = in_range and off_prevailing <= Weather.DIRECTION_SPREAD_DEG + 0.01 and kn >= Weather.MIN_KN and kn <= Weather.MAX_KN
+		directions_differ = directions_differ or absf(from_deg - float(first["from_deg"])) > 20.0
+		var start := Weather.wind_at(forecast, 0.0)
+		check(near(start["from"], deg_to_rad(from_deg), 0.0001) and near(start["kn"], kn, 0.0001), "the wind on leaving port matches the forecast")
+		for hour in range(1, 13):
+			var later := Weather.wind_at(forecast, hour * 3600.0)
+			var shift := absf(rad_to_deg(wrapf(float(later["from"]) - deg_to_rad(from_deg), -PI, PI)))
+			bounded = bounded and shift <= Weather.MAX_SHIFT_DEG + 0.01
+			bounded = bounded and absf(float(later["kn"]) - kn) <= Weather.MAX_STRENGTH_CHANGE_KN + 0.01
+			shifts = shifts or shift > 5.0
+	check(in_range, "forecasts stay within the allowed direction and strength")
+	check(directions_differ, "forecasts differ from day to day")
+	check(shifts, "the wind shifts during a passage")
+	check(bounded, "wind shifts stay within their limits")
+
+	check(Weather.compass_name(0.0) == "N" and Weather.compass_name(90.0) == "E", "compass names for north and east")
+	check(Weather.compass_name(70.0) == "ENE" and Weather.compass_name(350.0) == "N", "compass names round to the nearest point")
+	check(Weather.describe({"from_deg": 225.0, "kn": 11.0}) == "SW 11 kn", "a forecast reads as direction and strength")
+	check(near(Trade.par_from_estimate(5.0), 5.0 * Trade.PAR_FACTOR), "par is a multiple of the direct estimate")

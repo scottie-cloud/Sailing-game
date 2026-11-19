@@ -522,7 +522,7 @@ func _show_sailing_controls(sailing: bool) -> void:
 	haul_button.visible = sailing and ship.manual_trim
 	ease_button.visible = sailing and ship.manual_trim
 	reef_button.visible = sailing
-	reef_button.text = "Reefed: shake out" if ship.reefed else "Reef sail"
+	reef_button.text = "Reefed: undo" if ship.reefed else "Reef sail"
 	pause_button.visible = sailing
 	pause_button.text = "Resume" if paused else "Pause"
 
@@ -996,6 +996,11 @@ func _build_ui() -> void:
 	port_panel.offset_right = 450
 	port_panel.offset_top = 8
 	port_panel.offset_bottom = -8
+	# A solid background: the map behind made the text hard to read.
+	var port_style := StyleBoxFlat.new()
+	port_style.bg_color = Color("12303f")
+	port_style.set_corner_radius_all(8)
+	port_panel.add_theme_stylebox_override("panel", port_style)
 	root.add_child(port_panel)
 	var margin := MarginContainer.new()
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:

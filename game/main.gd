@@ -16,6 +16,7 @@ const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
 const Shoals = preload("res://sim/shoals.gd")
 const Survey = preload("res://sim/survey.gd")
+const Docking = preload("res://sim/docking.gd")
 const World = preload("res://game/world.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
@@ -41,6 +42,8 @@ const SIGHT_RADIUS := 1200.0
 const HOME_RADIUS := 2000.0
 ## The lead finds an uncharted shoal only this far ahead (px).
 const SOUNDING_RANGE := 300.0
+## Within this distance of the destination she can anchor off instead of docking (px).
+const ANCHOR_RANGE := 700.0
 ## A light is pointed out when the ship passes this close (px: two miles).
 const LIGHT_NOTICE_DISTANCE := 800.0
 const REPAIR_COST := 30
@@ -158,6 +161,10 @@ var reef_button: Button
 var pause_button: Button
 var view_button: Button
 var sound_button: Button
+var anchor_button: Button
+var new_game_button: Button
+## While this is ahead of the clock, a second tap on New game erases the save.
+var _new_game_armed_until := 0.0
 var sound: Sound
 var deck_view: DeckView
 ## True when the player has chosen the view from the deck.
@@ -190,6 +197,9 @@ func is_sailing() -> bool:
 
 func _process(delta: float) -> void:
 	anim_time += delta
+	if _new_game_armed_until > 0.0 and anim_time >= _new_game_armed_until:
+		_new_game_armed_until = 0.0
+		new_game_button.text = "New game"
 	if mode == Mode.SAILING and not paused:
 		_sail(delta)
 	camera.position = ship.position
@@ -661,6 +671,23 @@ func _toggle_view() -> void:
 	_save_game()
 
 
+## Starting again erases everything, so it takes two taps a few seconds apart at most.
+func _new_game_pressed() -> void:
+	if _new_game_armed_until > 0.0:
+		_start_new_game()
+		return
+	_new_game_armed_until = anim_time + 4.0
+	new_game_button.text = "Erase all?"
+
+
+## Throw away the save and begin again with a blank chart.
+func _start_new_game() -> void:
+	SaveGame.erase()
+	var fresh: Node = load("res://game/main.tscn").instantiate()
+	get_parent().add_child(fresh)
+	queue_free()
+
+
 func _toggle_sound() -> void:
 	sound_muted = not sound_muted
 	sound.set_muted(sound_muted)
@@ -756,6 +783,7 @@ func _show_sailing_controls(sailing: bool) -> void:
 	pause_button.visible = sailing
 	view_button.visible = sailing
 	sound_button.visible = sailing
+	anchor_button.visible = false
 	sound_button.text = "Sound: off" if sound_muted else "Sound: on"
 	view_button.text = "Top" if deck_mode else "Deck"
 	deck_view.visible = sailing and deck_mode
@@ -866,8 +894,10 @@ func _sail(delta: float) -> void:
 	if not beneath.is_empty():
 		_discover_shoal(beneath)
 	_advance_marks()
+	anchor_button.visible = near_destination()
 	if ship.position.distance_to(dest_pos) < DOCK_RADIUS:
-		_arrive()
+		# Alongside the pier: how it goes depends on the speed she arrives at.
+		_arrive(Docking.alongside(ship.speed_kn))
 
 
 ## Where to put her after grounding on a shoal: the last place she floated,
@@ -926,7 +956,21 @@ func _set_sail() -> void:
 	_show_sailing_controls(true)
 
 
-func _arrive() -> void:
+## Close enough to the destination to anchor off.
+func near_destination() -> bool:
+	return mode == Mode.SAILING and ship.position.distance_to(World.port_position(destination)) < ANCHOR_RANGE
+
+
+## Drop anchor in the roads and send the cargo ashore by boat: safe, but slow.
+func _anchor_off() -> void:
+	if near_destination():
+		_arrive(Docking.anchored(_cargo_units()))
+
+
+func _arrive(landing: Dictionary) -> void:
+	# Time lost in the landing counts towards the passage: it is time the cargo spends aboard.
+	var delay: float = landing["delay_s"]
+	passage_seconds += delay
 	var hours := passage_seconds / 3600.0
 	var par := passage_par
 	var distance_nm := route_distance_nm()
@@ -942,6 +986,8 @@ func _arrive() -> void:
 		record_tracks[key] = sailed
 		arrival += " New best passage! Her course is saved in the log."
 	lines.append(arrival)
+	var landing_cost: int = landing["cost"]
+	lines.append(landing["text"])
 	var difference := absf(hours - planned_hours)
 	if difference < 0.1:
 		lines.append("Right on your plan of %s." % format_hours(planned_hours))
@@ -991,6 +1037,7 @@ func _arrive() -> void:
 			lines.append("Charter missed: %s. No bonus this time." % contract["title"])
 		active_contract = ""
 	money += total
+	money = maxi(money - landing_cost, 0)
 	sound.ring_bell()
 	if ship.damaged:
 		var repair := mini(REPAIR_COST, money)
@@ -1168,6 +1215,9 @@ func _current_hint() -> String:
 		return "Shoal ahead: the %s is too shallow for her. Turn away, or wait for more tide." % shoal_ahead
 	if _in_no_go():
 		return "Sails flapping! You can't sail straight into the wind. Steer out of the red zone."
+	if near_destination():
+		return "Coming in to %s. Be under %d kn at the pier: turn into the wind to lose way. Or anchor off." % [
+			World.port_name(destination), int(Docking.CLEAN_KN)]
 	if passage_seconds < 1200.0:
 		if deck_mode:
 			return "Hold < or > to steer. Bring the gold MARK pointer to the middle of the compass."

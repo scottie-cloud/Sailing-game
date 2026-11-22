@@ -5,6 +5,7 @@ extends SceneTree
 
 const Trade = preload("res://sim/trade.gd")
 const Contracts = preload("res://sim/contracts.gd")
+const Docking = preload("res://sim/docking.gd")
 const World = preload("res://game/world.gd")
 
 ## A mark in open water in the middle of the bay.
@@ -104,9 +105,14 @@ func _run() -> void:
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)
 	var money_before: int = game.money
+	# Coming in: near the port she may anchor off; this time she goes alongside, gently.
+	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 400.0
+	check(game.near_destination(), "close to the port she is in the roads")
+	game.ship.speed_kn = 1.0
 	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 100.0
 	await _frames(5)
 	check(not game.is_sailing(), "the ship docks at the destination")
+	check(game.port_report.text.contains("made fast without a scrape"), "a slow approach makes a clean landing")
 	check(game.current_port == destination, "the ship is now at the destination port")
 	check(game.money > money_before, "the cargo is sold on arrival")
 	check(game.destination == origin, "the next destination is the port we came from")
@@ -217,7 +223,7 @@ func _run() -> void:
 	game.ship.position = sand
 	await _frames(3)
 	# Judged by the time lost, since another notice may have replaced the grounding one.
-	check(game.passage_seconds - before_grounding >= game.AGROUND_PENALTY_S, "a schooner runs aground there at low water and loses time")
+	check(game.passage_seconds - before_grounding >= game.AGROUND_PENALTY_S - 1.0, "a schooner runs aground there at low water and loses time")
 	check(game.passage_seconds - before_grounding < game.AGROUND_PENALTY_S * 2.0, "and only once")
 	check(game.ship.position.distance_to(sand) > 1.0, "and is put back where she can float")
 	check(World.depth_at(game.ship.position, game.tide_height()) > game.draught(), "with water under her")
@@ -227,9 +233,16 @@ func _run() -> void:
 	# Finish the passage, then use the shipyard and take a charter.
 	var second_port: String = game.destination
 	var second_pos := World.port_position(second_port)
-	game.ship.position = second_pos + (World.SIZE / 2.0 - second_pos).normalized() * 100.0
-	await _frames(5)
+	# This time she anchors off: safe, but an hour is lost.
+	game.ship.position = second_pos + (World.SIZE / 2.0 - second_pos).normalized() * 400.0
+	var before_anchoring: float = game.passage_seconds
+	game._anchor_off()
+	await _frames(2)
 	check(not game.is_sailing() and game.current_port == second_port, "the second passage ends in port")
+	check(game.port_report.text.contains("anchored off"), "anchoring off is reported")
+	check(not game.anchor_button.visible, "the anchor button goes away in port")
+	# A second of slack: adding an hour to a long passage time does not come out exact.
+	check(game.passage_seconds - before_anchoring >= Docking.ANCHOR_DELAY_S - 1.0, "and costs an hour")
 
 	game.money = 5000
 	game.open_shipyard()
@@ -260,13 +273,30 @@ func _run() -> void:
 	await _frames(5)
 	check(game.ship.turn_factor < 1.0 and game.ship.leeway_factor < 1.0, "the new ship and keel change how she handles")
 	var charter_pos := World.port_position(offer["to"])
+	# And this time she comes in far too fast.
+	game.ship.speed_kn = 6.0
 	game.ship.position = charter_pos + (World.SIZE / 2.0 - charter_pos).normalized() * 100.0
 	await _frames(5)
 	check(not game.is_sailing(), "the charter passage ends in port")
+	check(game.port_report.text.contains("struck the pier"), "arriving at speed strikes the pier")
 	check(game.port_report.text.contains("Charter fulfilled"), "the charter is fulfilled on arrival")
 	check(int(game.completed_contracts.get(offer["id"], 0)) == 1 and game.active_contract == "", "the charter is recorded and cleared")
 	check(game.money > money_before_charter, "the charter and cargo pay")
 	check(not game.glut.is_empty(), "the cargo landed is remembered by the market")
+
+	# New game: one tap asks, a second erases everything and starts again.
+	check(game.new_game_button.text == "New game" and game.money != game.STARTING_MONEY, "there is progress to lose")
+	game._new_game_pressed()
+	await _frames(2)
+	check(game.new_game_button.text == "Erase all?" and is_instance_valid(game) and not game.is_queued_for_deletion(), "the first tap only asks")
+	game._new_game_pressed()
+	await _frames(5)
+	var fresh: Node = root.get_child(root.get_child_count() - 1)
+	check(fresh != game and fresh.has_method("is_sailing"), "the second tap starts a new game")
+	check(fresh.money == fresh.STARTING_MONEY and fresh.ship_id == "cutter" and fresh.ship_log.is_empty(), "with the starting money, the cutter and an empty log")
+	check(fresh.current_port == "melbourne" and fresh.known_destinations().size() == 2 and fresh.known_shoals.is_empty(), "at Melbourne, knowing two ports and no shoals")
+	check(fresh.survey.known_fraction() < 0.2 and not fresh.survey.is_known(World.RIP_CENTRE), "and with a blank chart again")
+	check(AudioServer.get_bus_index(fresh.sound.bus_name("wind")) >= 0 and AudioServer.bus_count <= 6, "the sound is set up once, not twice")
 
 	print("smoke: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

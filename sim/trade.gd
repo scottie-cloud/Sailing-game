@@ -1,20 +1,11 @@
 extends RefCounted
-## Cargo and prices. Perishable cargo is what makes speed pay:
+## The rules for cargo prices. The cargoes themselves are in data/goods.gd.
+## Perishable cargo is what makes speed pay:
 ## it sells for a premium after a fast passage and at a loss after a slow one.
 ## Every cargo is worth more the further it has been carried.
 
-const GOODS := {
-	"newspapers": {"name": "Newspapers", "origin": "melbourne", "perishable": true, "buy": 8},
-	"tools": {"name": "Tools", "origin": "melbourne", "perishable": false, "buy": 10},
-	"butter": {"name": "Butter", "origin": "geelong", "perishable": true, "buy": 9},
-	"wool": {"name": "Wool", "origin": "geelong", "perishable": false, "buy": 10},
-	"fish": {"name": "Fresh fish", "origin": "queenscliff", "perishable": true, "buy": 8},
-	"lime": {"name": "Lime", "origin": "queenscliff", "perishable": false, "buy": 10},
-	"fruit": {"name": "Fruit", "origin": "mornington", "perishable": true, "buy": 9},
-	"timber": {"name": "Timber", "origin": "mornington", "perishable": false, "buy": 10},
-	"crayfish": {"name": "Crayfish", "origin": "barwon", "perishable": true, "buy": 9},
-	"onions": {"name": "Onions", "origin": "barwon", "perishable": false, "buy": 10},
-}
+const Goods = preload("res://data/goods.gd")
+const GOODS: Dictionary = Goods.GOODS
 
 ## Par for a passage is this multiple of the pilot-route estimate in the
 ## day's forecast wind: room for the tacks and a beginner's helm.

@@ -49,6 +49,7 @@ func _init() -> void:
 	test_heavy_weather()
 	test_shipyard()
 	test_market_and_charters()
+	test_data()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -466,11 +467,13 @@ func test_market_and_charters() -> void:
 	check(near(Market.glut_factor(1000.0), Market.GLUT_FLOOR), "a glutted market has a floor price")
 	check(near(Market.recovered(10.0, 4.0), 8.0) and near(Market.recovered(1.0, 100.0), 0.0), "the market recovers with time")
 	var goods_known := true
-	for good_id: String in Market.WANTED:
-		goods_known = goods_known and Trade.GOODS.has(good_id)
-		for port: String in Market.WANTED[good_id]:
-			goods_known = goods_known and World.PORTS.has(port) and Trade.GOODS[good_id]["origin"] != port
-	check(goods_known, "every wanted cargo exists and is wanted somewhere other than where it is sold")
+	for good_id: String in Trade.GOODS:
+		var good: Dictionary = Trade.GOODS[good_id]
+		goods_known = goods_known and World.PORTS.has(good["origin"]) and int(good["buy"]) > 0 and good["name"] != ""
+		for port: String in good["wanted_at"]:
+			goods_known = goods_known and World.PORTS.has(port) and good["origin"] != port and Market.is_wanted(good_id, port)
+	check(goods_known, "every cargo is sold at a real port and wanted somewhere else")
+	check(not Market.is_wanted("no such cargo", "melbourne"), "an unknown cargo is wanted nowhere")
 	check(Market.key("geelong", "wool") == "geelong:wool", "market entries are keyed by port and cargo")
 
 	var consistent := true
@@ -493,3 +496,34 @@ func test_market_and_charters() -> void:
 	check(not Contracts.is_met(wool, "geelong", "melbourne", 10, 10, deadline + 0.1, 8.0), "arriving late misses the charter")
 	check(not Contracts.is_met(wool, "geelong", "melbourne", 9, 10, 1.0, 8.0), "too little cargo misses the charter")
 	check(not Contracts.is_met(wool, "geelong", "mornington", 10, 10, 1.0, 8.0), "the wrong port misses the charter")
+
+
+## The lists in data/ are meant to be edited by hand, so check they hold together.
+func test_data() -> void:
+	var ports_ok := true
+	for port: String in World.PORTS:
+		var info: Dictionary = World.PORTS[port]
+		ports_ok = ports_ok and info.has("name") and info.has("lon") and info.has("lat")
+		var real := World.lonlat_to_px(info["lon"], info["lat"])
+		ports_ok = ports_ok and World.in_bounds(real)
+		# Placed in the nearest roomy water, which should be close to the real spot.
+		ports_ok = ports_ok and World.port_position(port).distance_to(real) < 1600.0
+		ports_ok = ports_ok and World.distance_to_land(World.port_position(port)) >= World.PORT_CLEARANCE - 1.0
+		ports_ok = ports_ok and World.port_premium(port) >= 1.0
+		ports_ok = ports_ok and not Trade.goods_sold_at(port).is_empty()
+	check(ports_ok, "every port has a name and a real position on the chart, sits in roomy water, and sells something")
+	check(World.port_position("melbourne") == World.port_position("melbourne"), "a port stays where it was put")
+
+	var ships_ok := Shipyard.SHIP_ORDER.size() == Shipyard.SHIPS.size()
+	var last_hold := 0
+	for id in Shipyard.SHIP_ORDER:
+		var ship: Dictionary = Shipyard.SHIPS[id]
+		for field: String in ["name", "price", "hold", "hull_speed", "turn", "strain_limit", "size", "blurb", "rig"]:
+			ships_ok = ships_ok and ship.has(field)
+		var rig: Array = ship["rig"]
+		ships_ok = ships_ok and not rig.is_empty() and int(ship["hold"]) > last_hold
+		for mast: Dictionary in rig:
+			ships_ok = ships_ok and mast.has("y") and mast.has("boom") and mast.has("jib")
+		last_hold = ship["hold"]
+	check(ships_ok, "every ship is fully described and each carries more than the last")
+	check(Shipyard.SHIPS[Shipyard.SHIP_ORDER[0]]["price"] == 0, "the first ship is free: it is the one you start with")

@@ -1,24 +1,13 @@
 extends RefCounted
-## Ships and upgrades. A bigger ship carries more and has a higher top speed
+## The rules for ships and upgrades. The ships and upgrades themselves are
+## in data/ships.gd. A bigger ship carries more and has a higher top speed
 ## but turns more slowly; upgrades carry over when you change ship.
 
-const SHIPS := {
-	"cutter": {"name": "Cutter", "price": 0, "hold": 10, "hull_speed": 7.0, "turn": 1.0, "strain_limit": 1200.0, "size": 1.0,
-		"blurb": "One mast, quick to turn. A boat for learning the bay."},
-	"ketch": {"name": "Ketch", "price": 700, "hold": 28, "hull_speed": 8.0, "turn": 0.8, "strain_limit": 1500.0, "size": 1.25,
-		"blurb": "Two masts and more than twice the hold. A working coaster."},
-	"schooner": {"name": "Schooner", "price": 2200, "hold": 45, "hull_speed": 9.5, "turn": 0.65, "strain_limit": 1800.0, "size": 1.5,
-		"blurb": "Fast and roomy, but slow in stays: plan her turns."},
-}
-const SHIP_ORDER: Array[String] = ["cutter", "ketch", "schooner"]
-
-const UPGRADES := {
-	"hold": {"name": "Bigger hold", "effect": "+5 cargo", "cost": 150, "max": 3},
-	"sails": {"name": "Better sails", "effect": "+6% speed", "cost": 200, "max": 3},
-	"keel": {"name": "Deeper keel", "effect": "25% less sideways slip", "cost": 180, "max": 2},
-	"rigging": {"name": "Stronger rigging", "effect": "stands a blow 50% longer", "cost": 160, "max": 2},
-}
-const UPGRADE_ORDER: Array[String] = ["hold", "sails", "keel", "rigging"]
+const Ships = preload("res://data/ships.gd")
+const SHIPS: Dictionary = Ships.SHIPS
+const SHIP_ORDER: Array[String] = Ships.SHIP_ORDER
+const UPGRADES: Dictionary = Ships.UPGRADES
+const UPGRADE_ORDER: Array[String] = Ships.UPGRADE_ORDER
 
 const HOLD_PER_LEVEL := 5
 const SAIL_BONUS_PER_LEVEL := 0.06

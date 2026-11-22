@@ -5,6 +5,7 @@ extends Control
 
 const SailingModel = preload("res://sim/sailing_model.gd")
 const World = preload("res://game/world.gd")
+const Palette = preload("res://game/palette.gd")
 
 const FOV := PI / 2.0
 ## On a clear day land can be made out this far off (px: 8 nautical miles).
@@ -31,7 +32,7 @@ const NIGHT_LOW := Color("27375c")
 const SEA_FAR := Color("2f7fa8")
 const SEA_NEAR := Color("154d73")
 const LAND := Color("4f7243")
-const GOLD := Color("ffd24a")
+const GOLD := Palette.GOLD
 
 var game
 ## Where the sea surface has scrolled to, in metres.

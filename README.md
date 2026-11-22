@@ -82,15 +82,42 @@ godot --headless --path . -s tests/run_tests.gd
 godot --headless --path . -s tests/smoke_test.gd
 ```
 
+## Where to change things
+
+| To change | Edit |
+| --- | --- |
+| Ports (name, real position, premium) | `data/ports.gd` |
+| Cargoes (price, where sold, where wanted) | `data/goods.gd` |
+| Charters and their stories | `data/charters.gd` |
+| Ships and upgrades | `data/ships.gd` |
+| How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |
+| How the boat sails | `sim/sailing_model.gd`, `sim/ship_state.gd` |
+| Wind, squalls and tide | `sim/weather.gd`, `sim/tide.gd` |
+| How fast time runs | `sim/time_compression.gd` |
+| Where buttons and panels sit | `game/ui_builder.gd` |
+| Colours | `game/palette.gd` |
+| The coastline | `tools/build_bay.py`, which writes `game/bay_data.gd` |
+
+Each file in `data/` starts with a note on what its fields mean. After any
+change, the tests check that the lists still hold together: every cargo is
+sold at a real port, every charter names real ports and a cargo sold where
+it starts, every port lands in water with room to dock.
+
 ## Layout
 
-- `sim/` game rules with no visuals: sailing maths, ship motion, weather,
-  tides, trade, the market, charters, the shipyard, route estimates and
-  time compression.
-- `game/` the map, the planning chart, the ship's log and the playable scene
-  (drawn in code).
+- `data/` the content: ports, cargoes, charters, ships. Plain lists.
+- `sim/` the rules, with no visuals: sailing, weather, tides, prices,
+  charters, the shipyard, route estimates, time compression.
+- `game/` what is on screen:
+  - `main.gd` the game's state and what happens in port and under sail
+  - `sea_view.gd` the sailing view from above; `deck_view.gd` from the deck
+  - `hud.gd` wind dial, minimap, trim bar and speed panel
+  - `chart.gd`, `log_screen.gd`, `list_screen.gd` the full-screen pages
+  - `ui_builder.gd` where every button and panel is laid out
+  - `world.gd` the map; `save_game.gd` the save file
+- `tests/` rule tests, a headless play-through, and a script that takes a
+  screenshot of each screen.
 - `tools/` the script that builds the map from coastline data.
-- `tests/` headless tests.
 
 ## Map data
 

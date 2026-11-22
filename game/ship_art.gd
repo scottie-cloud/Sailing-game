@@ -8,13 +8,7 @@ const DECK := Color("c9a26b")
 const SAIL := Color("f6efdc")
 const SPAR := Color("2e1c0d")
 
-## Each mast: where it stands along the deck, its boom length, and whether
-## a headsail is set forward of it.
-const RIGS := {
-	"cutter": [{"y": -10.0, "boom": 40.0, "jib": true}],
-	"ketch": [{"y": -14.0, "boom": 36.0, "jib": true}, {"y": 16.0, "boom": 22.0, "jib": false}],
-	"schooner": [{"y": -18.0, "boom": 28.0, "jib": true}, {"y": 6.0, "boom": 36.0, "jib": false}],
-}
+const Ships = preload("res://data/ships.gd")
 
 const HULL_SHAPE: Array[Vector2] = [Vector2(0, -38), Vector2(8, -24), Vector2(12, -6), Vector2(12, 16),
 	Vector2(8, 30), Vector2(-8, 30), Vector2(-12, 16), Vector2(-12, -6), Vector2(-8, -24)]
@@ -36,7 +30,7 @@ static func draw_top_down(canvas: CanvasItem, ship_id: String, sheet: float, sid
 	canvas.draw_colored_polygon(_scaled(HULL_SHAPE, 0.78, Vector2(0, -1)), DECK)
 	# Leeward is the side the sails swing out to.
 	var leeward := Vector2(-side, 0.0)
-	var rig: Array = RIGS.get(ship_id, RIGS["cutter"])
+	var rig: Array = Ships.SHIPS[ship_id]["rig"]
 	for entry: Dictionary in rig:
 		var mast_y: float = entry["y"]
 		var boom: float = entry["boom"]

@@ -8,6 +8,8 @@ https://github.com/nvkelso/natural-earth-vector/tree/master/geojson and run:
     pip install shapely mapbox-earcut numpy
     python3 tools/build_bay.py path/to/ne_10m_land.geojson game/bay_data.gd
 
+Ports are not part of this: they are listed in data/ports.gd.
+
 The coast is clipped to the bay, projected to game pixels (400 px = 1 nautical
 mile, north up), rounded off a little, and cut into triangles for drawing.
 """
@@ -17,25 +19,12 @@ import sys
 
 import mapbox_earcut
 import numpy as np
-from shapely.geometry import Point, Polygon, box, shape
-from shapely.ops import nearest_points, unary_union
+from shapely.geometry import Polygon, box, shape
+from shapely.ops import unary_union
 
 WEST, SOUTH, EAST, NORTH = 144.30, -38.42, 145.20, -37.78
 PX_PER_NM = 400.0
 LON_SCALE = math.cos(math.radians((SOUTH + NORTH) / 2.0))
-# Ports sit this far (px) off the coast so there is room to dock.
-PORT_CLEARANCE = 260.0
-
-# Approximate real positions; each is moved to the nearest water with clearance.
-PORTS = {
-    "melbourne": (144.91, -37.88),
-    "geelong": (144.39, -38.13),
-    "queenscliff": (144.68, -38.25),
-    "mornington": (145.02, -38.21),
-    "barwon": (144.49, -38.30),
-}
-
-
 def to_px(lon, lat):
     return ((lon - WEST) * LON_SCALE * 60.0 * PX_PER_NM, (NORTH - lat) * 60.0 * PX_PER_NM)
 
@@ -94,15 +83,6 @@ def main(source, target):
         indices = mapbox_earcut.triangulate_float64(vertices, np.array([len(ring)], dtype=np.uint32))
         triangles.extend(ring[i] for i in indices)
 
-    water = world.difference(land)
-    ports = {}
-    for name, (lon, lat) in PORTS.items():
-        wanted = Point(to_px(lon, lat))
-        roomy = water.buffer(-PORT_CLEARANCE)
-        # Stay in the main bay: the roomy water nearest the wanted position.
-        spot = nearest_points(roomy, wanted)[0]
-        ports[name] = (round(spot.x), round(spot.y))
-
     def vectors(points):
         return ", ".join("Vector2(%d, %d)" % p for p in points)
 
@@ -117,11 +97,8 @@ def main(source, target):
         "const PX_PER_DEGREE_LON := %.4f" % (LON_SCALE * 60.0 * PX_PER_NM),
         "const PX_PER_DEGREE_LAT := %.4f" % (60.0 * PX_PER_NM),
         "",
-        "const PORT_POSITIONS := {",
     ]
-    for name, spot in ports.items():
-        lines.append('\t"%s": Vector2(%d, %d),' % (name, spot[0], spot[1]))
-    lines += ["}", "", "## Coastline outlines, one closed ring per piece of land.", "const LAND_RINGS := ["]
+    lines += ["## Coastline outlines, one closed ring per piece of land.", "const LAND_RINGS := ["]
     for ring in rings:
         lines.append("\t[%s]," % vectors(ring))
     lines += ["]", "", "## The same land cut into triangles: three points each.", "const LAND_TRIANGLES := ["]
@@ -129,7 +106,7 @@ def main(source, target):
         lines.append("\t%s," % vectors(triangles[i:i + 30]))
     lines += ["]", ""]
     open(target, "w").write("\n".join(lines))
-    print("size", round(WIDTH), round(HEIGHT), "rings", [len(r) for r in rings], "triangles", len(triangles) // 3, "ports", ports)
+    print("size", round(WIDTH), round(HEIGHT), "rings", [len(r) for r in rings], "triangles", len(triangles) // 3)
 
 
 if __name__ == "__main__":

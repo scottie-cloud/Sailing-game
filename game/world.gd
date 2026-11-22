@@ -7,14 +7,10 @@ const Tide = preload("res://sim/tide.gd")
 
 const SIZE: Vector2 = Bay.SIZE
 
-const PORTS := {
-	"melbourne": {"name": "Melbourne"},
-	"geelong": {"name": "Geelong"},
-	"queenscliff": {"name": "Queenscliff"},
-	"mornington": {"name": "Mornington"},
-	# Outside the Heads on the ocean coast: reached only through the Rip.
-	"barwon": {"name": "Barwon Heads", "premium": 1.4},
-}
+const PortData = preload("res://data/ports.gd")
+const PORTS: Dictionary = PortData.PORTS
+## Ports sit at least this far (px) off the land, so there is room to dock.
+const PORT_CLEARANCE := 260.0
 
 ## The middle of the Rip, the narrow entrance to the bay, and the direction
 ## the flood tide runs through it.
@@ -34,6 +30,7 @@ static var _rings: Array[PackedVector2Array] = []
 static var _triangles := PackedVector2Array()
 static var _grid: AStarGrid2D
 static var _routes := {}
+static var _port_positions := {}
 
 
 ## Coastline outlines, one closed ring per piece of land.
@@ -51,8 +48,32 @@ static func triangles() -> PackedVector2Array:
 	return _triangles
 
 
+## Where a port sits on the chart: its real position, moved to the nearest
+## water with room to dock.
 static func port_position(port: String) -> Vector2:
-	return Bay.PORT_POSITIONS[port]
+	if not _port_positions.has(port):
+		var lon: float = PORTS[port]["lon"]
+		var lat: float = PORTS[port]["lat"]
+		_port_positions[port] = _roomy_water_near(lonlat_to_px(lon, lat))
+	return _port_positions[port]
+
+
+static func _roomy_water_near(wanted: Vector2) -> Vector2:
+	if distance_to_land(wanted) >= PORT_CLEARANCE:
+		return wanted
+	# Search outwards in rings; in the first ring with room, take the roomiest spot.
+	for ring in range(1, 81):
+		var best := wanted
+		var best_clearance := 0.0
+		for step in 32:
+			var candidate := wanted + Vector2.RIGHT.rotated(TAU * step / 32.0) * ring * 50.0
+			var clearance := distance_to_land(candidate)
+			if clearance >= PORT_CLEARANCE and clearance > best_clearance:
+				best = candidate
+				best_clearance = clearance
+		if best_clearance > 0.0:
+			return best.round()
+	return wanted
 
 
 static func port_name(port: String) -> String:

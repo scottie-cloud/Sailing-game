@@ -127,7 +127,8 @@ godot --headless --path . -s tests/smoke_test.gd
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |
-| How the boat sails | `sim/sailing_model.gd`, `sim/ship_state.gd` |
+| How the boat sails, and how fast she stops with the sail lowered | `sim/sailing_model.gd`, `sim/ship_state.gd` |
+| The compass strip | `game/hud.gd` |
 | Wind, squalls and tide | `sim/weather.gd`, `sim/tide.gd` |
 | How fast time runs | `sim/time_compression.gd` |
 | Where buttons and panels sit | `game/ui_builder.gd` |
@@ -149,7 +150,7 @@ it starts, every port lands in water with room to dock.
 - `game/` what is on screen:
   - `main.gd` the game's state and what happens in port and under sail
   - `sea_view.gd` the sailing view from above; `deck_view.gd` from the deck
-  - `hud.gd` wind dial, minimap, trim bar and speed panel
+  - `hud.gd` compass, wind dial, minimap, trim bar and speed panel
   - `chart.gd`, `log_screen.gd`, `list_screen.gd` the full-screen pages
   - `ui_builder.gd` where every button and panel is laid out
   - `world.gd` the map; `save_game.gd` the save file

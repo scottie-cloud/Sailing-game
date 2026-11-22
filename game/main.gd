@@ -162,6 +162,9 @@ var pause_button: Button
 var view_button: Button
 var sound_button: Button
 var anchor_button: Button
+var new_game_button: Button
+## While this is ahead of the clock, a second tap on New game erases the save.
+var _new_game_armed_until := 0.0
 var sound: Sound
 var deck_view: DeckView
 ## True when the player has chosen the view from the deck.
@@ -194,6 +197,9 @@ func is_sailing() -> bool:
 
 func _process(delta: float) -> void:
 	anim_time += delta
+	if _new_game_armed_until > 0.0 and anim_time >= _new_game_armed_until:
+		_new_game_armed_until = 0.0
+		new_game_button.text = "New game"
 	if mode == Mode.SAILING and not paused:
 		_sail(delta)
 	camera.position = ship.position
@@ -663,6 +669,23 @@ func _toggle_view() -> void:
 	deck_mode = not deck_mode
 	_show_sailing_controls(mode == Mode.SAILING)
 	_save_game()
+
+
+## Starting again erases everything, so it takes two taps a few seconds apart at most.
+func _new_game_pressed() -> void:
+	if _new_game_armed_until > 0.0:
+		_start_new_game()
+		return
+	_new_game_armed_until = anim_time + 4.0
+	new_game_button.text = "Erase all?"
+
+
+## Throw away the save and begin again with a blank chart.
+func _start_new_game() -> void:
+	SaveGame.erase()
+	var fresh: Node = load("res://game/main.tscn").instantiate()
+	get_parent().add_child(fresh)
+	queue_free()
 
 
 func _toggle_sound() -> void:

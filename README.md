@@ -50,6 +50,8 @@ Built with [Godot 4.3](https://godotengine.org/download).
   Turn into the wind, reef or ease the sheet to lose way. Or anchor off when
   near the port: safe, but the cargo goes ashore by boat, costing an hour
   and a fee.
+- A New game button on the port screen. It erases everything, so it asks
+  for a second tap.
 - A Pause button under sail.
 - A trim bar above the speed panel: a green band shows where the sail sets
   well and slides as the heading or wind changes; keep the white marker in it.

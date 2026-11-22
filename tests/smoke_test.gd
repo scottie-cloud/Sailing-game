@@ -283,5 +283,19 @@ func _run() -> void:
 	check(game.money > money_before_charter, "the charter and cargo pay")
 	check(not game.glut.is_empty(), "the cargo landed is remembered by the market")
 
+	# New game: one tap asks, a second erases everything and starts again.
+	check(game.new_game_button.text == "New game" and game.money != game.STARTING_MONEY, "there is progress to lose")
+	game._new_game_pressed()
+	await _frames(2)
+	check(game.new_game_button.text == "Erase all?" and is_instance_valid(game) and not game.is_queued_for_deletion(), "the first tap only asks")
+	game._new_game_pressed()
+	await _frames(5)
+	var fresh: Node = root.get_child(root.get_child_count() - 1)
+	check(fresh != game and fresh.has_method("is_sailing"), "the second tap starts a new game")
+	check(fresh.money == fresh.STARTING_MONEY and fresh.ship_id == "cutter" and fresh.ship_log.is_empty(), "with the starting money, the cutter and an empty log")
+	check(fresh.current_port == "melbourne" and fresh.known_destinations().size() == 2 and fresh.known_shoals.is_empty(), "at Melbourne, knowing two ports and no shoals")
+	check(fresh.survey.known_fraction() < 0.2 and not fresh.survey.is_known(World.RIP_CENTRE), "and with a blank chart again")
+	check(AudioServer.get_bus_index(fresh.sound.bus_name("wind")) >= 0 and AudioServer.bus_count <= 6, "the sound is set up once, not twice")
+
 	print("smoke: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

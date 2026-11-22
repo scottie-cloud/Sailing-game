@@ -9,6 +9,12 @@ const World = preload("res://game/world.gd")
 const SAVE_PATH := "user://save.json"
 
 
+## Delete the save file, if there is one.
+static func erase() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.open("user://").remove(SAVE_PATH.get_file())
+
+
 static func save(game) -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:

@@ -188,10 +188,13 @@ static func _build_port_screen(game, root: Control) -> void:
 	var menu := HBoxContainer.new()
 	menu.add_theme_constant_override("separation", 12)
 	for item: Array in [["Plan route", game.open_chart], ["Charters", game.open_contracts],
-			["Shipyard", game.open_shipyard], ["Ship's log", game.open_log]]:
+			["Shipyard", game.open_shipyard], ["Ship's log", game.open_log], ["New game", game._new_game_pressed]]:
 		var menu_button := make_button(item[0], item[1], 0)
 		menu_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		menu_button.add_theme_font_size_override("font_size", SMALL_TEXT)
 		menu.add_child(menu_button)
+		if item[0] == "New game":
+			game.new_game_button = menu_button
 	box.add_child(menu)
 
 	var departure := HBoxContainer.new()

@@ -27,10 +27,13 @@ func setup(game_ref) -> void:
 		stream.loop_begin = 0
 		stream.loop_end = int(stream.get_length() * stream.mix_rate)
 		# Each loop has its own volume control, so it can be faded on its own.
-		AudioServer.add_bus()
-		var index := AudioServer.bus_count - 1
-		AudioServer.set_bus_name(index, bus_name(sound))
-		AudioServer.set_bus_send(index, "Master")
+		# A new game starts a new player: use the volume control already there.
+		var index := AudioServer.get_bus_index(bus_name(sound))
+		if index < 0:
+			AudioServer.add_bus()
+			index = AudioServer.bus_count - 1
+			AudioServer.set_bus_name(index, bus_name(sound))
+			AudioServer.set_bus_send(index, "Master")
 		AudioServer.set_bus_volume_db(index, SoundMix.SILENT_DB)
 		var player := AudioStreamPlayer.new()
 		player.stream = stream

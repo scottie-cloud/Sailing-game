@@ -40,7 +40,7 @@ func setup(game_ref) -> void:
 	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	summary.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	summary.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	summary.add_theme_font_size_override("font_size", 20)
+	summary.add_theme_font_size_override("font_size", 18)
 	bar.add_child(summary)
 	bar.add_child(_button("Pilot", use_pilot))
 	record_button = _button("Record", use_record)

@@ -251,7 +251,7 @@ func plan_summary(detailed: bool) -> String:
 	if blocked > 0:
 		text += " %d leg%s land (orange)." % [blocked, " crosses" if blocked == 1 else "s cross"]
 	if upwind > 0:
-		text += " %d leg%s too close to the wind (red), so you would have to zig-zag there." % [upwind, " points" if upwind == 1 else "s point"]
+		text += " %d red leg%s zig-zagging into the wind." % [upwind, " needs" if upwind == 1 else "s need"]
 	if detailed:
 		var par := route_par()
 		text += " Fresh cargo earns a premium under %s." % format_hours(Trade.premium_hours(par))

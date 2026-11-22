@@ -137,8 +137,9 @@ func _draw_speed_panel(font: Font) -> void:
 
 	var sailing_line := "%s: wind %d° off the bow" % [SailingModel.point_of_sail(twa), roundi(twa)]
 	var stream: Vector2 = World.current_kn(game.ship.position, game.now_hours())
-	if stream.length() > 0.2:
-		sailing_line += "   Tide %.1f kn to %s" % [stream.length(), Weather.compass_name(rad_to_deg(SailingModel.vector_to_bearing(stream)))]
+	if stream.length() > 0.3:
+		sailing_line = "%s, wind %d°. Tide %.1f kn %s" % [SailingModel.point_of_sail(twa), roundi(twa), stream.length(),
+			Weather.compass_name(rad_to_deg(SailingModel.vector_to_bearing(stream)))]
 	draw_string(font, Vector2(x, y + 78.0), sailing_line, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
 	_draw_trim_bar(font, panel, twa)
 	draw_string(font, Vector2(x, y + 106.0), "This heading is worth %.1f kn (her best is %.1f)" % [worth, best],

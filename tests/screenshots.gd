@@ -123,6 +123,16 @@ func _run() -> void:
 	game._toggle_view()
 	game.clock_hours = 0.0
 
+	# Shallow water: the sands seen from above in a deep ship.
+	game.ship_id = "schooner"
+	game.ship.position = World.lonlat_to_px(144.72, -38.24)
+	game.ship.heading = deg_to_rad(90.0)
+	await _settle(12)
+	await _shot("22_sea_by_the_sands_in_a_schooner")
+	game.ship_id = "cutter"
+	game.ship.position = Vector2(10500, 7500)
+	await _settle(4)
+
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)
 	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 100.0
@@ -130,4 +140,11 @@ func _run() -> void:
 	await _shot("13_arrival_report")
 	game.open_log()
 	await _shot("14_log_with_entry")
+	game.close_log()
+	# The chart as a loaded schooner sees it: red where she cannot go.
+	game.ship_id = "schooner"
+	game._change_cargo(Trade.goods_sold_at(game.current_port)[0], 999)
+	game.open_chart()
+	game.chart.use_pilot()
+	await _shot("23_chart_for_a_schooner")
 	quit(0)

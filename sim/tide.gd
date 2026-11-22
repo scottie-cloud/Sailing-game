@@ -15,11 +15,19 @@ const BAY_PEAK_KN := 0.3
 const BAY_REACH := 9000.0
 ## Below this fraction of full strength the tide counts as slack water.
 const SLACK := 0.2
+## How far the water rises from low to high, in metres.
+const RANGE_M := 0.9
 
 
 ## +1 at full flood (into the bay), -1 at full ebb, 0 at slack water.
 static func phase(clock_hours: float) -> float:
 	return sin(TAU * clock_hours / CYCLE_HOURS)
+
+
+## Height of the water above low water, in metres. It rises while the tide
+## floods and falls while it ebbs.
+static func height_m(clock_hours: float) -> float:
+	return RANGE_M / 2.0 * (1.0 - cos(TAU * clock_hours / CYCLE_HOURS))
 
 
 ## Peak stream (knots) this far from the middle of the entrance.

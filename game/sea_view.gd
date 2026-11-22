@@ -8,12 +8,14 @@ const Shipyard = preload("res://sim/shipyard.gd")
 const World = preload("res://game/world.gd")
 const ShipArt = preload("res://game/ship_art.gd")
 const Palette = preload("res://game/palette.gd")
+const Shoals = preload("res://sim/shoals.gd")
 const LAND_FILL := Palette.LAND_FILL
 const LAND_EDGE := Palette.LAND_EDGE
 const SHALLOW_OUTER := Palette.SHALLOW_OUTER
 const SHALLOW_INNER := Palette.SHALLOW_INNER
 const GOLD := Palette.GOLD
 const RECORD := Palette.RECORD
+var _land_colours := PackedColorArray([Palette.LAND_FILL, Palette.LAND_FILL, Palette.LAND_FILL])
 
 var game
 
@@ -86,12 +88,14 @@ func _draw() -> void:
 	# Only the land near the ship is drawn.
 	var triangles := World.triangles()
 	for i: int in World.triangles_near(view):
-		draw_colored_polygon(PackedVector2Array([triangles[i], triangles[i + 1], triangles[i + 2]]), LAND_FILL)
+		# Drawn as plain triangles: some are slivers too thin for the polygon routine.
+		draw_primitive(PackedVector2Array([triangles[i], triangles[i + 1], triangles[i + 2]]), _land_colours, PackedVector2Array())
 	_draw_scrub(view)
 	for index: int in World.edges_near(view.grow(16.0)):
 		var from := World.edge_from(index)
 		draw_line(from, World.edge_to(index), LAND_EDGE, 16.0)
 		draw_circle(from, 8.0, LAND_EDGE)
+	_draw_shoals(view)
 	_draw_features(view)
 	_draw_ports()
 	if game.is_sailing():
@@ -161,6 +165,28 @@ func _draw_wake() -> void:
 		draw_line(wake[i - 1] + out, wake[i] + out, Color(1, 1, 1, alpha), 3.0)
 		draw_line(wake[i - 1] - out, wake[i] - out, Color(1, 1, 1, alpha), 3.0)
 		draw_line(wake[i - 1], wake[i], Color(0.8, 0.95, 1.0, alpha * 0.5), 6.0)
+
+
+## Shoals show as paler, sandy water. One too shallow for her at this tide is tinted red.
+func _draw_shoals(view: Rect2) -> void:
+	var font := ThemeDB.fallback_font
+	var draws: float = game.draught()
+	var tide: float = game.tide_height()
+	for shoal: Dictionary in World.shoals():
+		var bounds: Rect2 = shoal["bounds"]
+		if not bounds.intersects(view):
+			continue
+		var depth := Shoals.depth_m(shoal["depth"], tide)
+		var tint := Palette.SHOAL if Shoals.can_float(depth, draws) else Palette.SHOAL_TOO_SHALLOW
+		var polygon: PackedVector2Array = shoal["polygon"]
+		draw_colored_polygon(polygon, Color(tint, 0.3))
+		var outline := polygon.duplicate()
+		outline.append(polygon[0])
+		for i in range(1, outline.size()):
+			draw_dashed_line(outline[i - 1], outline[i], Color(tint, 0.8), 4.0, 30.0)
+		var centre: Vector2 = shoal["centre"]
+		if view.has_point(centre):
+			draw_string(font, centre + Vector2(-250, 0), "%s, %.1f m" % [shoal["name"], depth], HORIZONTAL_ALIGNMENT_CENTER, 500, 28, Color(1, 1, 1, 0.75))
 
 
 ## Place names and lights, as on a chart.

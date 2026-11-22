@@ -188,6 +188,26 @@ func _run() -> void:
 	check(game.forecast_text() != "", "the port shows a wind forecast")
 	check(game.route_par() > 0.0, "the route has a par time for the day's wind")
 
+	# Shallow water: the cutter floats over the West Sand, a schooner grounds on it.
+	var sand: Vector2 = World.lonlat_to_px(144.775, -38.225)
+	game.clock_hours = -game.passage_seconds / 3600.0
+	check(game.tide_height() < 0.05 and game.draught() < 2.0, "it is low water and the cutter draws little")
+	game.ship.position = sand
+	await _frames(3)
+	check(game.ship.position.distance_to(sand) < 200.0, "the cutter crosses the sand")
+	var own_ship: String = game.ship_id
+	game.ship_id = "schooner"
+	var before_grounding: float = game.passage_seconds
+	game.ship.position = sand
+	await _frames(3)
+	# Judged by the time lost, since another notice may have replaced the grounding one.
+	check(game.passage_seconds - before_grounding >= game.AGROUND_PENALTY_S, "a schooner runs aground there at low water and loses time")
+	check(game.passage_seconds - before_grounding < game.AGROUND_PENALTY_S * 2.0, "and only once")
+	check(game.ship.position.distance_to(sand) > 1.0, "and is put back where she can float")
+	check(World.depth_at(game.ship.position, game.tide_height()) > game.draught(), "with water under her")
+	game.ship_id = own_ship
+	game.clock_hours = 0.0
+
 	# Finish the passage, then use the shipyard and take a charter.
 	var second_port: String = game.destination
 	var second_pos := World.port_position(second_port)

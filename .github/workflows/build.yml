@@ -79,7 +79,7 @@ jobs:
       # A script error while drawing only shows up when the game is on screen.
       - name: No script errors while on screen
         run: |
-          if [ -f "$RUNNER_TEMP/screenshots.log" ] && grep "SCRIPT ERROR" "$RUNNER_TEMP/screenshots.log"; then exit 1; fi
+          if [ -f "$RUNNER_TEMP/screenshots.log" ] && grep -m 5 -E "SCRIPT ERROR|Invalid polygon data" "$RUNNER_TEMP/screenshots.log"; then exit 1; fi
 
       - name: Install web export templates
         run: |

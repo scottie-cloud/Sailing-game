@@ -105,7 +105,11 @@ def main(source, target):
             rings.append(points)
             vertices = np.array(points, dtype=np.float64)
             indices = mapbox_earcut.triangulate_float64(vertices, np.array([len(points)], dtype=np.uint32))
-            triangles.extend(points[i] for i in indices)
+            for t in range(0, len(indices), 3):
+                a, b, c = (points[i] for i in indices[t:t + 3])
+                # Leave out slivers with no area: there is nothing to draw.
+                if abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) >= 2:
+                    triangles.extend((a, b, c))
 
     # A coarse grid over the chart so the game can tell at once whether a
     # point is plainly land (L), plainly water (W) or near the shore (M).

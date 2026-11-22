@@ -14,6 +14,7 @@ const Tide = preload("res://sim/tide.gd")
 const Shipyard = preload("res://sim/shipyard.gd")
 const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
+const Shoals = preload("res://sim/shoals.gd")
 const World = preload("res://game/world.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
@@ -102,6 +103,8 @@ var ship_log: Array = []
 var record_tracks := {}
 
 var land_ahead := false
+## The name of a shoal ahead that is too shallow for her, or "".
+var shoal_ahead := ""
 ## Distance from the ship to the nearest land, refreshed a few times a second.
 var land_distance := -1.0
 var last_safe_position := Vector2.ZERO
@@ -209,7 +212,30 @@ func estimate(points: Array[Vector2], check_land: bool = true) -> Array[Dictiona
 	var legs := RoutePlan.legs(points, wind_from, wind_kn, hull_speed(), SailingModel.AUTO_TRIM_EFFICIENCY)
 	for leg in legs:
 		leg["crosses_land"] = check_land and World.segment_crosses_land(leg["from"], leg["to"])
+		# A shoal too shallow for her as she is loaded, at the tide as it stands now.
+		leg["shoal"] = World.shoal_on_segment(leg["from"], leg["to"], draught(), tide_height()) if check_land else ""
 	return legs
+
+
+## How deep she sits now, in metres: deeper with cargo aboard.
+func draught() -> float:
+	return Shipyard.draught_m(ship_id, float(_cargo_units()) / hold_capacity())
+
+
+## How deep she sits with a full hold.
+func laden_draught() -> float:
+	return Shipyard.draught_m(ship_id, 1.0)
+
+
+## Height of the tide above low water, in metres.
+func tide_height() -> float:
+	return Tide.height_m(now_hours())
+
+
+## The pilot's course for this ship: clear of every shoal she could not
+## cross at low water with a full hold.
+func pilot_route() -> Array[Vector2]:
+	return World.pilot_route(current_port, destination, laden_draught())
 
 
 func plan_hours() -> float:
@@ -220,7 +246,7 @@ func plan_hours() -> float:
 func route_par() -> float:
 	var from_deg: float = forecast["from_deg"]
 	var kn: float = forecast["kn"]
-	var pilot := RoutePlan.legs(World.pilot_route(current_port, destination), deg_to_rad(from_deg), kn,
+	var pilot := RoutePlan.legs(pilot_route(), deg_to_rad(from_deg), kn,
 		BASE_HULL_SPEED_KN, SailingModel.AUTO_TRIM_EFFICIENCY)
 	return Trade.par_from_estimate(RoutePlan.total_hours(pilot))
 
@@ -255,9 +281,14 @@ func plan_summary(detailed: bool) -> String:
 	var legs := estimate(route_points(World.port_position(current_port), 0))
 	var upwind := 0
 	var blocked := 0
+	var shoal_names: Array[String] = []
 	for leg in legs:
+		var shoal: String = leg["shoal"]
 		if leg["crosses_land"]:
 			blocked += 1
+		elif shoal != "":
+			if not shoal_names.has(shoal):
+				shoal_names.append(shoal)
 		elif not leg["direct"]:
 			upwind += 1
 	var marks := "straight line" if plan.is_empty() else ("%d mark%s" % [plan.size(), "" if plan.size() == 1 else "s"])
@@ -266,6 +297,10 @@ func plan_summary(detailed: bool) -> String:
 		text += " %d leg%s land (orange)." % [blocked, " crosses" if blocked == 1 else "s cross"]
 	if upwind > 0:
 		text += " %d red leg%s zig-zagging into the wind." % [upwind, " needs" if upwind == 1 else "s need"]
+	if not shoal_names.is_empty():
+		text += " Too shallow for her now: %s." % ", ".join(shoal_names)
+	elif not World.has_pilot_route(current_port, destination, laden_draught()):
+		text += " With a full hold she cannot reach %s at low water: cross on the tide or carry less." % World.port_name(destination)
 	if detailed:
 		var par := route_par()
 		text += " Fresh cargo earns a premium under %s." % format_hours(Trade.premium_hours(par))
@@ -351,7 +386,8 @@ func _refresh_shipyard() -> void:
 	var entries: Array[Dictionary] = []
 	for id in Shipyard.SHIP_ORDER:
 		var info: Dictionary = Shipyard.SHIPS[id]
-		var text := "%s: hold %d, top speed %.1f kn. %s" % [info["name"], info["hold"], info["hull_speed"], info["blurb"]]
+		var text := "%s: hold %d, top speed %.1f kn, draws %.1f to %.1f m. %s" % [info["name"], info["hold"], info["hull_speed"],
+			Shipyard.draught_m(id, 0.0), Shipyard.draught_m(id, 1.0), info["blurb"]]
 		if id == ship_id:
 			entries.append({"text": text + " This is your ship."})
 			continue
@@ -464,7 +500,7 @@ func now_hours() -> float:
 
 
 func tide_text() -> String:
-	return "Tide at the Heads: %s, turns in %s" % [Tide.describe(now_hours()), format_hours(Tide.hours_to_turn(now_hours()))]
+	return "Tide %s, %.1f m above low water, turns in %s" % [Tide.describe(now_hours()), tide_height(), format_hours(Tide.hours_to_turn(now_hours()))]
 
 
 ## Squalls as {"centre", "radius"} at a time this many hours into the passage.
@@ -637,8 +673,11 @@ func _sail(delta: float) -> void:
 	var in_irons := _in_no_go() and ship.speed_kn < 1.5
 
 	land_ahead = false
+	shoal_ahead = ""
 	var ahead := SailingModel.bearing_to_vector(ship.heading)
 	var to_destination := ship.position.distance_to(dest_pos)
+	var draws := draught()
+	var tide := tide_height()
 	for distance: float in [150.0, 300.0, 450.0, 600.0]:
 		# The shore behind the port we are heading for is not a hazard.
 		if distance > to_destination:
@@ -646,6 +685,10 @@ func _sail(delta: float) -> void:
 		var probe := ship.position + ahead * distance
 		if World.is_blocked(probe):
 			land_ahead = true
+			break
+		var shoal := World.shoal_at(probe)
+		if not shoal.is_empty() and not Shoals.can_float(Shoals.depth_m(shoal["depth"], tide), draws):
+			shoal_ahead = shoal["name"]
 			break
 
 	# Land, the destination and the next mark are all places a decision is due.
@@ -655,7 +698,7 @@ func _sail(delta: float) -> void:
 	var hazard := minf(land_distance, ship.position.distance_to(target_point()))
 	hazard = minf(hazard, to_destination)
 	_watch_weather()
-	var target := TimeCompression.target_scale(rudder != 0.0 or trim != 0.0, in_irons or ship.overpowered, land_ahead, hazard)
+	var target := TimeCompression.target_scale(rudder != 0.0 or trim != 0.0, in_irons or ship.overpowered, land_ahead or shoal_ahead != "", hazard)
 	time_scale = TimeCompression.approach(time_scale, target, delta)
 
 	var dt := delta * GAME_SECONDS_PER_REAL_SECOND * time_scale
@@ -672,6 +715,15 @@ func _sail(delta: float) -> void:
 		else:
 			passage_seconds += AGROUND_PENALTY_S
 			_show_notice("Ran aground! Lost 30 minutes getting her off. Steer back to open water.", 6.0)
+	elif not Shoals.can_float(World.depth_at(ship.position, tide), draws):
+		var under: Dictionary = World.shoal_at(ship.position)
+		ship.position = _refloat_position(draws, tide)
+		last_safe_position = ship.position
+		ship.speed_kn = 0.0
+		ship.heading = wrapf(ship.heading + PI, 0.0, TAU)
+		passage_seconds += AGROUND_PENALTY_S
+		_show_notice("Aground on the %s! She draws %.1f m and there is only %.1f m. Lost 30 minutes floating her off." % [
+			under["name"], draws, Shoals.depth_m(under["depth"], tide)], 8.0)
 	else:
 		last_safe_position = ship.position
 		if ship.position.distance_to(track[track.size() - 1]) > TRACK_SPACING:
@@ -684,6 +736,18 @@ func _sail(delta: float) -> void:
 	_advance_marks()
 	if ship.position.distance_to(dest_pos) < DOCK_RADIUS:
 		_arrive()
+
+
+## Where to put her after grounding on a shoal: the last place she floated,
+## or, if the tide has since left that too shallow, the latest point of her
+## track with water enough.
+func _refloat_position(draws: float, tide: float) -> Vector2:
+	if Shoals.can_float(World.depth_at(last_safe_position, tide), draws):
+		return last_safe_position
+	for i in range(track.size() - 1, -1, -1):
+		if Shoals.can_float(World.depth_at(track[i], tide), draws):
+			return track[i]
+	return World.port_position(current_port)
 
 
 func _set_sail() -> void:
@@ -834,6 +898,7 @@ func _enter_port(port: String, report: String) -> void:
 	ship.speed_kn = 0.0
 	time_scale = 1.0
 	land_ahead = false
+	shoal_ahead = ""
 	if money < MINIMUM_STAKE:
 		money = MINIMUM_STAKE
 		report += "\nThe harbourmaster advances you enough to buy a small cargo."
@@ -891,7 +956,7 @@ func _buy_upgrade(kind: String) -> void:
 
 func _refresh_port_panel() -> void:
 	var ship_name: String = Shipyard.SHIPS[ship_id]["name"]
-	port_money.text = "Money: $%d     %s, hold %d / %d" % [money, ship_name, _cargo_units(), hold_capacity()]
+	port_money.text = "Money: $%d     %s, hold %d / %d, draws %.1f m" % [money, ship_name, _cargo_units(), hold_capacity(), draught()]
 	plan_label.text = "Wind today: %s, shifting at sea. %s" % [forecast_text(), plan_summary(false)]
 	var contract := _current_contract()
 	if not contract.is_empty():
@@ -962,6 +1027,8 @@ func _current_hint() -> String:
 		return "Too much sail for this wind! Reef, or a sail will split."
 	if land_ahead:
 		return "Land ahead! Turn away."
+	if shoal_ahead != "":
+		return "Shoal ahead: the %s is too shallow for her. Turn away, or wait for more tide." % shoal_ahead
 	if _in_no_go():
 		return "Sails flapping! You can't sail straight into the wind. Steer out of the red zone."
 	if passage_seconds < 1200.0:
@@ -994,6 +1061,10 @@ func _update_hud() -> void:
 			parts.append("%d %s" % [cargo[good_id], Trade.GOODS[good_id]["name"]])
 	var cargo_text := ", ".join(parts) if not parts.is_empty() else "empty"
 	status_label.text = "%s   $%d   Cargo: %s" % [clock_text(), money, cargo_text]
+	# Over a shoal, call the depth like a leadsman.
+	var sounding := World.depth_at(ship.position, tide_height())
+	if sounding != INF:
+		status_label.text += "   Depth %.1f m, she draws %.1f" % [sounding, draught()]
 	var remaining := RoutePlan.total_hours(estimate(route_points(ship.position, next_mark), false))
 	var projected := passage_seconds / 3600.0 + remaining
 	passage_label.text = "Sailed %s   On course for %s (plan %s)   Time x%d" % [

@@ -219,8 +219,8 @@ func _run() -> void:
 	check(game.position_report().contains("bears") and not game.left_button.visible, "the chart says where she is against the plan")
 	game.close_chart()
 	check(game.at_helm() and game.left_button.visible and not game.port_panel.visible, "closing the chart goes back to the helm")
-	var course: float = game.course_to_steer()
-	check(course >= 0.0 and course <= TAU, "there is a course to steer by compass")
+	var steer_by: float = game.course_to_steer()
+	check(steer_by >= 0.0 and steer_by <= TAU, "there is a course to steer by compass")
 	check(game.tide_text().contains("Tide"), "the state of the tide is reported")
 	check(game.squalls_at(0.0).size() <= 2, "the day's squalls can be listed")
 	var clock: float = game.clock_hours

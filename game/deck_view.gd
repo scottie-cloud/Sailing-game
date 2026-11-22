@@ -11,6 +11,8 @@ const FOV := PI / 2.0
 ## On a clear day land can be made out this far off (px: 8 nautical miles).
 const CLEAR_VISIBILITY := 3200.0
 const SQUALL_VISIBILITY := 500.0
+## At night a lighthouse shows this far off (px: 12 nautical miles).
+const NIGHT_LIGHT_RANGE := 4800.0
 const METRES_PER_PX := 4.63
 const EYE_HEIGHT_M := 3.0
 ## Land is drawn this many times taller than life, so a distant shore can be
@@ -237,6 +239,28 @@ func _draw_landmarks(heading: float, focal: float) -> void:
 		draw_rect(Rect2(x - 3.0, -tall, 6.0, tall), Color.WHITE)
 		draw_rect(Rect2(x - 4.0, -tall - 4.0, 8.0, 4.0), Color("c0392b"))
 		draw_string(font, Vector2(x - 100.0, -tall - 12.0), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 200, 20, Color.WHITE)
+	# Lighthouses: a white tower by day; by night a flashing light seen from much further off.
+	var night: bool = game.daylight() < 0.4
+	var light_limit := maxf(limit, NIGHT_LIGHT_RANGE) if night else limit
+	for index in World.LIGHTS.size():
+		var light: Dictionary = World.LIGHTS[index]
+		var to_light: Vector2 = World.feature_position(light) - game.ship.position
+		var distance := to_light.length()
+		var offset := wrapf(SailingModel.vector_to_bearing(to_light) - heading, -PI, PI)
+		if distance > light_limit or distance < 30.0 or absf(offset) > FOV * 0.6:
+			continue
+		var x := tan(offset) * focal
+		var tall := maxf(_apparent_height(25.0 * LAND_EXAGGERATION, distance, focal), 8.0)
+		if distance <= limit:
+			draw_rect(Rect2(x - 2.5, -tall, 5.0, tall), Color.WHITE)
+		if night and sin(game.anim_time * 2.2 + index * 1.7) > 0.0:
+			draw_circle(Vector2(x, -tall), 7.0, Color(1.0, 0.92, 0.6, 0.35))
+			draw_circle(Vector2(x, -tall), 3.5, Color(1.0, 0.95, 0.75))
+		else:
+			draw_circle(Vector2(x, -tall), 2.5, GOLD)
+		if distance < 1600.0:
+			draw_string(font, Vector2(x - 150.0, -tall - 10.0), World.light_label(light), HORIZONTAL_ALIGNMENT_CENTER, 300, 16, Color(1.0, 0.95, 0.75))
+
 	var to_mark: Vector2 = game.target_point() - game.ship.position
 	var mark_distance := to_mark.length()
 	var mark_offset := wrapf(SailingModel.vector_to_bearing(to_mark) - heading, -PI, PI)

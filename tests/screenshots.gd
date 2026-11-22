@@ -106,6 +106,23 @@ func _run() -> void:
 	await _shot("18_top_down_in_squall")
 	game.forecast["squalls"] = []
 
+	# Chart detail: the Heads from above, then the Queenscliff lights from the deck at night.
+	game.ship.position = World.port_position("queenscliff") + Vector2(-150, 250)
+	game.ship.heading = deg_to_rad(200.0)
+	await _settle(12)
+	await _shot("19_sea_by_the_heads")
+	game.ship.position = World.RIP_CENTRE
+	await _settle(12)
+	await _shot("20_sea_in_the_rip")
+	game.clock_hours = 15.0
+	game._toggle_view()
+	game.ship.position = World.port_position("queenscliff") + Vector2(1200, -700)
+	game.ship.heading = deg_to_rad(240.0)
+	await _settle(12)
+	await _shot("21_deck_lights_at_night")
+	game._toggle_view()
+	game.clock_hours = 0.0
+
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)
 	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 100.0

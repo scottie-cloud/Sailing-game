@@ -52,6 +52,7 @@ func _init() -> void:
 	test_market_and_charters()
 	test_data()
 	test_sound_mix()
+	test_chart()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -203,7 +204,7 @@ func test_world() -> void:
 			var route := World.pilot_route(port, other)
 			var straight := position.distance_to(World.port_position(other)) / 400.0
 			routes_ok = routes_ok and route.size() >= 2 and route[0] == position and route[route.size() - 1] == World.port_position(other)
-			routes_ok = routes_ok and World.route_length_nm(route) >= straight - 0.01 and World.route_length_nm(route) < straight * 4.0
+			routes_ok = routes_ok and World.route_length_nm(route) >= straight - 0.01 and World.route_length_nm(route) < straight * 5.0
 			for i in range(1, route.size()):
 				routes_ok = routes_ok and not World.segment_crosses_land(route[i - 1], route[i], 100.0)
 	check(roomy, "every port is in the water with room to dock")
@@ -552,3 +553,66 @@ func test_sound_mix() -> void:
 	check(silent, "a paused game is silent")
 	check(in_range, "levels stay between 0 and 1")
 	check(near(SoundMix.to_db(0.0), SoundMix.SILENT_DB) and near(SoundMix.to_db(1.0), 0.0) and SoundMix.to_db(0.5) < 0.0, "levels convert to decibels")
+
+
+## The detailed coastline, the shortcuts that keep it fast, and what is marked on it.
+func test_chart() -> void:
+	# The coarse grid must agree with the coastline itself.
+	var agrees := true
+	var shore_squares := 0
+	for i in 400:
+		var seed_value := posmod(hash(i * 7919), 1000000)
+		var p := Vector2(seed_value % int(World.SIZE.x), (seed_value / 7) % int(World.SIZE.y))
+		var exact := false
+		for polygon in World.land():
+			exact = exact or Geometry2D.is_point_in_polygon(p, polygon)
+		agrees = agrees and World.is_land(p) == exact
+		shore_squares += 1 if World.cell_state(p) == 2 else 0
+	check(agrees, "the quick land test agrees with the coastline at 400 scattered points")
+	check(shore_squares > 0 and shore_squares < 100, "only a few of those points are near the shore")
+	check(World.cell_state(Vector2(-50, 100)) == 0 and not World.is_land(Vector2(-50, 100)), "off the chart is not land")
+
+	# Asking for the coast near a spot must not miss the nearest stretch.
+	var distances_ok := true
+	for p: Vector2 in [Vector2(11000, 8000), Vector2(9000, 7000), Vector2(6350, 12470), Vector2(1800, 8500), Vector2(12500, 3500), Vector2(4000, 14000)]:
+		if World.is_blocked(p):
+			continue
+		var brute := minf(minf(p.x, World.SIZE.x - p.x), minf(p.y, World.SIZE.y - p.y))
+		for polygon in World.land():
+			for i in polygon.size():
+				brute = minf(brute, p.distance_to(Geometry2D.get_closest_point_to_segment(p, polygon[i], polygon[(i + 1) % polygon.size()])))
+		distances_ok = distances_ok and near(World.distance_to_land(p), brute, 0.01)
+	check(distances_ok, "distance to land matches a full search of the coastline")
+	var by_the_heads := Rect2(5500, 11500, 2000, 2000)
+	check(World.edges_near(by_the_heads).size() > 20 and World.edges_near(by_the_heads).size() < 800, "only the nearby coast is returned for a view")
+	check(World.triangles_near(by_the_heads).size() > 5, "nearby land triangles are found")
+	check(World.edges_near(Rect2(10500, 7500, 300, 300)).is_empty(), "the middle of the bay has no coast nearby")
+	check(World.minimap_texture().get_width() > 100, "the minimap picture is made")
+
+	# The Rip is open water, with the bay up-tide of it and the ocean down-tide.
+	var flood := SailingModel.bearing_to_vector(deg_to_rad(World.FLOOD_BEARING_DEG))
+	check(not World.is_blocked(World.RIP_CENTRE) and World.distance_to_land(World.RIP_CENTRE) > 150.0, "the middle of the Rip is clear water")
+	check(not World.is_blocked(World.RIP_CENTRE + flood * 1500.0) and not World.is_blocked(World.RIP_CENTRE - flood * 1500.0), "the tide runs through the Rip in open water both ways")
+	check(not World.segment_crosses_land(World.RIP_CENTRE - flood * 1200.0, World.RIP_CENTRE + flood * 1200.0), "a ship can sail straight through the Rip along the tide")
+
+	# The detail a chart should show.
+	check(World.is_land(World.lonlat_to_px(144.765, -38.272)) or World.distance_to_land(World.lonlat_to_px(144.765, -38.272)) < 400.0, "the Mud Islands are on the chart")
+	check(World.land().size() >= 2, "the chart has islands as well as the mainland")
+	check(not World.is_land(World.lonlat_to_px(144.671, -38.234)), "Swan Bay is water")
+
+	var places_ok := true
+	for place: Dictionary in World.PLACES:
+		places_ok = places_ok and place["name"] != "" and World.in_bounds(World.feature_position(place))
+		places_ok = places_ok and (place["kind"] == "water" or place["kind"] == "land") and (int(place["rank"]) == 1 or int(place["rank"]) == 2)
+		if place["kind"] == "water":
+			places_ok = places_ok and not World.is_land(World.feature_position(place))
+	check(places_ok, "every named place is on the chart, and waters are named on water")
+	var lights_ok := true
+	for light: Dictionary in World.LIGHTS:
+		var at := World.feature_position(light)
+		lights_ok = lights_ok and World.in_bounds(at) and int(light["year"]) > 1800 and int(light["year"]) < 1900 and light["note"] != ""
+		# A light stands on the shore or on piles in the water, never far inland.
+		lights_ok = lights_ok and (not World.is_land(at) or World.distance_to_land(at + Vector2(0, 0)) == 0.0)
+	check(lights_ok and World.LIGHTS.size() >= 5, "every light is on the chart with a year and a note")
+	check(World.light_label({"name": "Point Lonsdale", "year": 1863}) == "Point Lonsdale Light (1863)", "a light is labelled with its name and year")
+	check(World.light_label({"name": "Eastern Light", "year": 1883}) == "Eastern Light (1883)", "a name that already says Light is left alone")

@@ -33,6 +33,8 @@ const DOCK_RADIUS := 170.0
 const SHEET_RATE_DEG := 30.0
 ## A squall is announced when its edge is this close (px).
 const SQUALL_WARNING_DISTANCE := 1800.0
+## A light is pointed out when the ship passes this close (px: two miles).
+const LIGHT_NOTICE_DISTANCE := 800.0
 const REPAIR_COST := 30
 ## The game clock starts at eight in the morning.
 const START_HOUR := 8.0
@@ -68,6 +70,8 @@ var paused := false
 var squall_strength := 0.0
 var announced_squalls := {}
 var announced_damage := false
+## Lights already pointed out on this passage.
+var announced_lights := {}
 var announced_wind_from := 0.0
 var time_scale := 1.0
 var passage_seconds := 0.0
@@ -98,6 +102,8 @@ var ship_log: Array = []
 var record_tracks := {}
 
 var land_ahead := false
+## Distance from the ship to the nearest land, refreshed a few times a second.
+var land_distance := -1.0
 var last_safe_position := Vector2.ZERO
 var anim_time := 0.0
 var notice := ""
@@ -537,6 +543,13 @@ func _watch_weather() -> void:
 			time_scale = 1.0
 			var bearing := SailingModel.vector_to_bearing(centre - ship.position)
 			_show_notice("Squall coming from the %s! Reef before it hits, or risk a split sail." % Weather.compass_name(rad_to_deg(bearing)), 7.0)
+	# Passing a light for the first time: say what it is.
+	for index in World.LIGHTS.size():
+		var light: Dictionary = World.LIGHTS[index]
+		if not announced_lights.has(index) and ship.position.distance_to(World.feature_position(light)) < LIGHT_NOTICE_DISTANCE:
+			announced_lights[index] = true
+			if anim_time >= notice_until:
+				_show_notice("%s. %s" % [World.light_label(light), light["note"]], 9.0)
 	if ship.damaged and not announced_damage:
 		announced_damage = true
 		time_scale = 1.0
@@ -636,7 +649,10 @@ func _sail(delta: float) -> void:
 			break
 
 	# Land, the destination and the next mark are all places a decision is due.
-	var hazard := minf(World.distance_to_land(ship.position), ship.position.distance_to(target_point()))
+	# Measuring to the coast is the costly part, so it is done a few times a second.
+	if Engine.get_process_frames() % 8 == 0 or land_distance < 0.0:
+		land_distance = World.distance_to_land(ship.position)
+	var hazard := minf(land_distance, ship.position.distance_to(target_point()))
 	hazard = minf(hazard, to_destination)
 	_watch_weather()
 	var target := TimeCompression.target_scale(rudder != 0.0 or trim != 0.0, in_irons or ship.overpowered, land_ahead, hazard)
@@ -678,6 +694,7 @@ func _set_sail() -> void:
 	planned_hours = plan_hours()
 	passage_par = route_par()
 	track = [from_pos]
+	land_distance = -1.0
 	wake.clear()
 	var bearing := SailingModel.vector_to_bearing(target_point() - from_pos)
 	# If the first leg is straight upwind, start on the nearer tack instead.
@@ -708,6 +725,7 @@ func _set_sail() -> void:
 	ship.strain_s = 0.0
 	paused = false
 	announced_squalls = {}
+	announced_lights = {}
 	announced_damage = ship.damaged
 	_show_sailing_controls(true)
 

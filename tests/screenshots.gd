@@ -4,6 +4,7 @@ extends SceneTree
 ##   SCREENSHOT_DIR=/tmp/shots godot --path . --rendering-driver opengl3 -s tests/screenshots.gd
 
 const World = preload("res://game/world.gd")
+const SaveGame = preload("res://game/save_game.gd")
 const SailingModel = preload("res://sim/sailing_model.gd")
 const Trade = preload("res://sim/trade.gd")
 
@@ -35,8 +36,7 @@ func _run() -> void:
 		out_dir = "user://screenshots"
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	# Start from a fresh game so the pictures are comparable from run to run.
-	if FileAccess.file_exists("user://save.json"):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://save.json"))
+	SaveGame.erase()
 
 	var scene: PackedScene = load("res://game/main.tscn")
 	game = scene.instantiate()

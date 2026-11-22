@@ -48,9 +48,9 @@ func _process(delta: float) -> void:
 		game.is_flapping(), game.squall_strength)
 	for sound in LOOPS:
 		var target: float = wanted[sound]
-		var level: float = move_toward(_levels[sound], target, FADE_RATE * delta)
-		_levels[sound] = level
-		AudioServer.set_bus_volume_db(AudioServer.get_bus_index(bus_name(sound)), SoundMix.to_db(level))
+		var faded: float = move_toward(_levels[sound], target, FADE_RATE * delta)
+		_levels[sound] = faded
+		AudioServer.set_bus_volume_db(AudioServer.get_bus_index(bus_name(sound)), SoundMix.to_db(faded))
 
 
 ## How loud a loop is right now, 0 to 1.

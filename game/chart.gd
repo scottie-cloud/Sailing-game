@@ -221,15 +221,21 @@ func _draw() -> void:
 		draw_line(rip - flow * 8.0, flow_head, RECORD, 3.0)
 		draw_colored_polygon(PackedVector2Array([flow_head + flow * 9.0, flow_head + flow.orthogonal() * 6.0, flow_head - flow.orthogonal() * 6.0]), RECORD)
 
-	# Forecast squalls: where each will be when you leave, and its track for six hours.
-	for squall: Dictionary in game.squalls_at(0.0):
-		var squall_radius: float = squall["radius"]
-		draw_circle(to_screen(squall["centre"]), squall_radius * s, Color(0.05, 0.05, 0.1, 0.45))
-	var later: Array[Dictionary] = game.squalls_at(6.0)
-	var sooner: Array[Dictionary] = game.squalls_at(0.0)
-	for i in later.size():
-		draw_dashed_line(to_screen(sooner[i]["centre"]), to_screen(later[i]["centre"]), Color(0.05, 0.05, 0.1, 0.8), 2.0, 6.0)
-		draw_string(font, to_screen(later[i]["centre"]) + Vector2(6, 4), "squall +6h", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+	# Forecast squalls: each one's track across the chart, with its place marked
+	# hour by hour for the next eight hours. Only what falls on the chart is drawn.
+	for hour in range(0, 9):
+		var squalls: Array[Dictionary] = game.squalls_at(float(hour))
+		var next_hour: Array[Dictionary] = game.squalls_at(float(hour) + 1.0)
+		for i in squalls.size():
+			var centre: Vector2 = squalls[i]["centre"]
+			var onward: Vector2 = next_hour[i]["centre"]
+			if not World.in_bounds(centre):
+				continue
+			if World.in_bounds(onward):
+				draw_dashed_line(to_screen(centre), to_screen(onward), Color(0.05, 0.05, 0.1, 0.8), 2.0, 6.0)
+			draw_circle(to_screen(centre), 5.0, Color(0.05, 0.05, 0.1, 0.9))
+			draw_string(font, to_screen(centre) + Vector2(7, 5), "squall +%dh" % hour if hour > 0 else "squall now",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	var legs: Array[Dictionary] = game.estimate(route)

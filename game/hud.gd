@@ -42,10 +42,7 @@ func _draw_minimap() -> void:
 	var map_size: Vector2 = World.SIZE * map_scale
 	var origin := Vector2(size.x - map_size.x - 20.0, 56.0)
 	draw_rect(Rect2(origin, map_size), Color(0.05, 0.2, 0.32, 0.85))
-	var triangles := World.triangles()
-	for i in range(0, triangles.size(), 3):
-		draw_colored_polygon(PackedVector2Array([origin + triangles[i] * map_scale,
-			origin + triangles[i + 1] * map_scale, origin + triangles[i + 2] * map_scale]), LAND_FILL)
+	draw_texture_rect(World.minimap_texture(), Rect2(origin, map_size), false)
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	if route.size() > 2:
 		for i in range(1, route.size()):

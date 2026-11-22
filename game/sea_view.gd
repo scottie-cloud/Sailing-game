@@ -85,21 +85,14 @@ func _draw() -> void:
 	_draw_waves()
 	# Only the land near the ship is drawn.
 	var triangles := World.triangles()
-	for i in range(0, triangles.size(), 3):
-		var a := triangles[i]
-		var b := triangles[i + 1]
-		var c := triangles[i + 2]
-		var bounds := Rect2(a, Vector2.ZERO).expand(b).expand(c)
-		if bounds.intersects(view):
-			draw_colored_polygon(PackedVector2Array([a, b, c]), LAND_FILL)
+	for i: int in World.triangles_near(view):
+		draw_colored_polygon(PackedVector2Array([triangles[i], triangles[i + 1], triangles[i + 2]]), LAND_FILL)
 	_draw_scrub(view)
-	for polygon in World.land():
-		for i in polygon.size():
-			var from := polygon[i]
-			var to := polygon[(i + 1) % polygon.size()]
-			if Rect2(from, Vector2.ZERO).expand(to).grow(16.0).intersects(view):
-				draw_line(from, to, LAND_EDGE, 16.0)
-				draw_circle(from, 8.0, LAND_EDGE)
+	for index: int in World.edges_near(view.grow(16.0)):
+		var from := World.edge_from(index)
+		draw_line(from, World.edge_to(index), LAND_EDGE, 16.0)
+		draw_circle(from, 8.0, LAND_EDGE)
+	_draw_features(view)
 	_draw_ports()
 	if game.is_sailing():
 		_draw_squalls()
@@ -111,21 +104,15 @@ func _draw() -> void:
 
 ## Pale water along the coast, as over sand in the shallows.
 func _draw_shallows(view: Rect2) -> void:
-	var wide := view.grow(260.0)
-	for polygon in World.land():
-		for i in polygon.size():
-			var from := polygon[i]
-			var to := polygon[(i + 1) % polygon.size()]
-			if Rect2(from, Vector2.ZERO).expand(to).intersects(wide):
-				draw_line(from, to, SHALLOW_OUTER, 420.0)
-				draw_circle(from, 210.0, SHALLOW_OUTER)
-	for polygon in World.land():
-		for i in polygon.size():
-			var from := polygon[i]
-			var to := polygon[(i + 1) % polygon.size()]
-			if Rect2(from, Vector2.ZERO).expand(to).intersects(wide):
-				draw_line(from, to, SHALLOW_INNER, 150.0)
-				draw_circle(from, 75.0, SHALLOW_INNER)
+	var nearby := World.edges_near(view.grow(260.0))
+	for index: int in nearby:
+		var from := World.edge_from(index)
+		draw_line(from, World.edge_to(index), SHALLOW_OUTER, 420.0)
+		draw_circle(from, 210.0, SHALLOW_OUTER)
+	for index: int in nearby:
+		var from := World.edge_from(index)
+		draw_line(from, World.edge_to(index), SHALLOW_INNER, 150.0)
+		draw_circle(from, 75.0, SHALLOW_INNER)
 
 
 ## Darker clumps of scrub scattered over the land.
@@ -174,6 +161,27 @@ func _draw_wake() -> void:
 		draw_line(wake[i - 1] + out, wake[i] + out, Color(1, 1, 1, alpha), 3.0)
 		draw_line(wake[i - 1] - out, wake[i] - out, Color(1, 1, 1, alpha), 3.0)
 		draw_line(wake[i - 1], wake[i], Color(0.8, 0.95, 1.0, alpha * 0.5), 6.0)
+
+
+## Place names and lights, as on a chart.
+func _draw_features(view: Rect2) -> void:
+	var font := ThemeDB.fallback_font
+	for place: Dictionary in World.PLACES:
+		var p := World.feature_position(place)
+		if not view.grow(200.0).has_point(p):
+			continue
+		var colour := Color(0.82, 0.92, 1.0, 0.6) if place["kind"] == "water" else Color(0.96, 0.94, 0.82, 0.75)
+		draw_string(font, p + Vector2(-200, 10), place["name"], HORIZONTAL_ALIGNMENT_CENTER, 400, 30, colour)
+	for light: Dictionary in World.LIGHTS:
+		var p := World.feature_position(light)
+		if not view.grow(200.0).has_point(p):
+			continue
+		for ray in 8:
+			var out := Vector2.RIGHT.rotated(TAU * ray / 8.0)
+			draw_line(p + out * 16.0, p + out * 26.0, GOLD, 3.0)
+		draw_circle(p, 13.0, Color.WHITE)
+		draw_circle(p, 7.0, GOLD)
+		draw_string(font, p + Vector2(-200, 54), World.light_label(light), HORIZONTAL_ALIGNMENT_CENTER, 400, 24, Color(1.0, 0.95, 0.75))
 
 
 func _draw_ports() -> void:

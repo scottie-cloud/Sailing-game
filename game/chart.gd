@@ -153,6 +153,20 @@ func _draw() -> void:
 	for i in range(0, triangles.size(), 3):
 		draw_colored_polygon(PackedVector2Array([to_screen(triangles[i]), to_screen(triangles[i + 1]), to_screen(triangles[i + 2])]), LAND_FILL)
 
+	# Names of the main waters and districts, and every light.
+	for place: Dictionary in World.PLACES:
+		if int(place["rank"]) > 1:
+			continue
+		var at := to_screen(World.feature_position(place))
+		var colour := Color(0.82, 0.92, 1.0, 0.75) if place["kind"] == "water" else Color(0.96, 0.94, 0.82, 0.8)
+		draw_string(font, at + Vector2(-110, 5), place["name"], HORIZONTAL_ALIGNMENT_CENTER, 220, 15, colour)
+	for light: Dictionary in World.LIGHTS:
+		var at := to_screen(World.feature_position(light))
+		draw_circle(at, 4.5, Color.WHITE)
+		draw_circle(at, 2.5, GOLD)
+	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0), "Coastline: GSHHG. Lights shown as gold dots.",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.6))
+
 	# Wind arrows across the open water.
 	var blowing_to: Vector2 = SailingModel.bearing_to_vector(game.wind_from + PI)
 	var barb := blowing_to.orthogonal() * 6.0

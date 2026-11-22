@@ -7,7 +7,9 @@ Built with [Godot 4.3](https://godotengine.org/download).
 
 ## Stage 1 (what exists now)
 
-- Port Phillip Bay, to scale, from real coastline data, with five ports:
+- Port Phillip Bay, to scale, from a detailed real coastline, with place
+  names and the bay's nineteenth-century lighthouses marked. Passing a light
+  tells you what it is; at night the lights flash on the horizon. Five ports:
   Melbourne, Geelong, Queenscliff, Mornington and Barwon Heads. Mid-bay there is no land in
   sight, so you sail by the chart.
 - Choose your destination in port. Cargo is worth more the further it goes.
@@ -91,6 +93,7 @@ godot --headless --path . -s tests/smoke_test.gd
 | --- | --- |
 | Ports (name, real position, premium) | `data/ports.gd` |
 | Cargoes (price, where sold, where wanted) | `data/goods.gd` |
+| Place names and lighthouses on the chart | `data/chart_features.gd` |
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |
@@ -126,10 +129,18 @@ it starts, every port lands in water with room to dock.
 
 ## Map data
 
-The coastline comes from Natural Earth 1:10m land polygons (public domain),
-converted by `tools/build_bay.py` into `game/bay_data.gd`. At that scale the
-bay is recognisable but coarse: small features such as Swan Bay, Mud Islands
-and the shoals are not shown.
+The coastline is cut from GSHHG, the Global Self-consistent, Hierarchical,
+High-resolution Geography database (Wessel and Smith), at full resolution.
+GSHHG is distributed under the GNU Lesser General Public License; the cut
+used here is `tools/source/port_phillip_land.geojson`, and
+`tools/build_bay.py` turns it into `game/bay_data.gd`. It shows Corio Bay,
+Hobsons Bay, Swan Bay and Swan Island, the Mud Islands and the Rip at their
+true size.
+
+Place names and lighthouses are in `data/chart_features.gd`. Their positions
+and dates were set down from general knowledge, not taken from a chart or a
+source, and should be checked before being relied on. Depths, shoals and
+channels are not shown yet.
 
 ## Planned stages
 

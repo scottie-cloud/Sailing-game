@@ -6,10 +6,11 @@ extends RefCounted
 ##            (1.4 = 40% more). Leave it out for an ordinary port.
 
 const PORTS := {
-	"melbourne": {"name": "Melbourne", "lon": 144.91, "lat": -37.88},
-	"geelong": {"name": "Geelong", "lon": 144.39, "lat": -38.13},
-	"queenscliff": {"name": "Queenscliff", "lon": 144.68, "lat": -38.25},
-	"mornington": {"name": "Mornington", "lon": 145.02, "lat": -38.21},
+	# Hobsons Bay, off Williamstown: where ships for Melbourne lay.
+	"melbourne": {"name": "Melbourne", "lon": 144.907, "lat": -37.868},
+	"geelong": {"name": "Geelong", "lon": 144.362, "lat": -38.143},
+	"queenscliff": {"name": "Queenscliff", "lon": 144.666, "lat": -38.264},
+	"mornington": {"name": "Mornington", "lon": 145.034, "lat": -38.214},
 	# Outside the Heads on the ocean coast: reached only through the Rip.
-	"barwon": {"name": "Barwon Heads", "lon": 144.49, "lat": -38.30, "premium": 1.4},
+	"barwon": {"name": "Barwon Heads", "lon": 144.497, "lat": -38.288, "premium": 1.4},
 }

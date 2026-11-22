@@ -6,6 +6,7 @@ extends Control
 const SailingModel = preload("res://sim/sailing_model.gd")
 const World = preload("res://game/world.gd")
 const Shoals = preload("res://sim/shoals.gd")
+const Survey = preload("res://sim/survey.gd")
 const Tide = preload("res://sim/tide.gd")
 
 const BAR_HEIGHT := 112.0
@@ -44,7 +45,6 @@ func setup(game_ref) -> void:
 	summary.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	summary.add_theme_font_size_override("font_size", 18)
 	bar.add_child(summary)
-	bar.add_child(_button("Pilot", use_pilot))
 	record_button = _button("Record", use_record)
 	bar.add_child(record_button)
 	bar.add_child(_button("Undo", undo))
@@ -85,12 +85,6 @@ func undo() -> void:
 func clear() -> void:
 	game.plan.clear()
 	game.plan_changed()
-	refresh()
-
-
-## Replace the plan with the pilot's safe course around the land.
-func use_pilot() -> void:
-	game.follow_track(game.pilot_route())
 	refresh()
 
 
@@ -136,7 +130,8 @@ func _gui_input(event: InputEvent) -> void:
 func add_mark(world_point: Vector2) -> void:
 	if game.plan.size() >= game.MAX_MARKS:
 		return
-	if World.is_blocked(world_point):
+	# A mark can go anywhere but on land she knows to be land.
+	if not World.in_bounds(world_point) or (game.survey.is_known(world_point) and World.is_land(world_point)):
 		return
 	game.plan.append(world_point)
 	game.plan_changed()
@@ -161,6 +156,9 @@ func _draw() -> void:
 	# sand at any tide, amber only with enough tide, red not at all.
 	var draws: float = game.draught()
 	for shoal: Dictionary in World.shoals():
+		# Only the shoals her lead has found.
+		if not game.known_shoals.has(shoal["name"]):
+			continue
 		var outline := PackedVector2Array()
 		for point: Vector2 in shoal["polygon"]:
 			outline.append(to_screen(point))
@@ -177,17 +175,25 @@ func _draw() -> void:
 
 	# Names of the main waters and districts, and every light.
 	for place: Dictionary in World.PLACES:
-		if int(place["rank"]) > 1:
+		if int(place["rank"]) > 1 or not game.survey.is_known(World.feature_position(place)):
 			continue
 		var at := to_screen(World.feature_position(place))
 		var colour := Color(0.82, 0.92, 1.0, 0.75) if place["kind"] == "water" else Color(0.96, 0.94, 0.82, 0.8)
 		draw_string(font, at + Vector2(-110, 5), place["name"], HORIZONTAL_ALIGNMENT_CENTER, 220, 15, colour)
 	for light: Dictionary in World.LIGHTS:
+		if not game.survey.is_known(World.feature_position(light)):
+			continue
 		var at := to_screen(World.feature_position(light))
 		draw_circle(at, 4.5, Color.WHITE)
 		draw_circle(at, 2.5, GOLD)
-	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0), "Coastline: GSHHG. Gold dots: lights. Shoals: depth at low water; amber needs the tide, red is too shallow for her.",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.6))
+
+	# Everything she has not surveyed is blank.
+	var fog: ImageTexture = game.fog_texture
+	# Only the part of the picture that lies on the chart is used, so nothing spills past its edge.
+	draw_texture_rect_region(fog, map_rect, Rect2(Vector2.ZERO, World.SIZE / Survey.CELL))
+	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0),
+		"Blank: not yet surveyed. Gold dots: lights. Shoals: amber needs the tide, red is too shallow.",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.15, 0.12, 0.05, 0.85))
 
 	# Wind arrows across the open water.
 	var blowing_to: Vector2 = SailingModel.bearing_to_vector(game.wind_from + PI)
@@ -195,7 +201,8 @@ func _draw() -> void:
 	for x in range(1200, int(World.SIZE.x), 2400):
 		for y in range(1200, int(World.SIZE.y), 2400):
 			var at := Vector2(x, y)
-			if World.distance_to_land(at) < 400.0:
+			# Over unsurveyed squares the arrows are drawn everywhere, so they give no coast away.
+			if game.survey.is_known(at) and World.distance_to_land(at) < 400.0:
 				continue
 			var centre := to_screen(at)
 			var head := centre + blowing_to * 16.0
@@ -214,7 +221,7 @@ func _draw() -> void:
 
 	# The tidal stream in the Rip: an arrow the way it is running now.
 	var stream: Vector2 = World.current_kn(World.RIP_CENTRE, game.now_hours())
-	if stream.length() > 0.3:
+	if stream.length() > 0.3 and game.survey.is_known(World.RIP_CENTRE):
 		var rip := to_screen(World.RIP_CENTRE)
 		var flow := stream.normalized()
 		var flow_head := rip + flow * (8.0 + stream.length() * 8.0)
@@ -264,6 +271,8 @@ func _draw() -> void:
 			var speed: float = leg["speed_kn"]
 			colour = SLOW_LEG.lerp(FAST_LEG, clampf(inverse_lerp(0.4, 1.0, speed / best), 0.0, 1.0))
 			label = "%.1f kn, %s" % [speed, game.format_hours(leg["hours"])]
+		if leg["uncharted"] and not leg["crosses_land"] and leg["shoal"] == "":
+			label += ", uncharted"
 		draw_line(a, b, colour, 5.0)
 		var middle := (a + b) / 2.0
 		draw_string(font, middle + Vector2(-99, -9), label, HORIZONTAL_ALIGNMENT_CENTER, 200, 18, Color.BLACK)
@@ -274,10 +283,16 @@ func _draw() -> void:
 		draw_circle(mark, 13.0, GOLD)
 		draw_string(font, mark + Vector2(-13, 7), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 26, 18, Color.BLACK)
 
+	# Only the ports she knows of. One she has heard of but never seen is marked as reported.
 	for port: String in World.PORTS:
+		if not game.knows_port(port):
+			continue
+		var seen: bool = game.survey.is_known(World.port_position(port))
 		var p := to_screen(World.port_position(port))
 		draw_circle(p, 10.0, Color("7a5230"))
 		draw_circle(p, 6.0, GOLD if port == game.destination else Color.WHITE)
-		draw_string(font, p + Vector2(-90, -16), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 180, 20, Color.WHITE)
+		var title := World.port_name(port) if seen else World.port_name(port) + " (reported)"
+		draw_string(font, p + Vector2(-109, -15), title, HORIZONTAL_ALIGNMENT_CENTER, 220, 18, Color(0, 0, 0, 0.7))
+		draw_string(font, p + Vector2(-110, -16), title, HORIZONTAL_ALIGNMENT_CENTER, 220, 18, Color.WHITE)
 
 	draw_rect(map_rect, Color(1, 1, 1, 0.6), false, 2.0)

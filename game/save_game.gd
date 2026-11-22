@@ -36,6 +36,9 @@ static func save(game) -> void:
 		"plans": saved_plans,
 		"manual_trim": game.ship.manual_trim,
 		"deck_mode": game.deck_mode,
+		"survey": game.survey.to_text(),
+		"known_ports": game.known_ports.keys(),
+		"known_shoals": game.known_shoals.keys(),
 		"sound_muted": game.sound_muted,
 		"clock_hours": game.clock_hours,
 		"damaged": game.ship.damaged,
@@ -96,6 +99,16 @@ static func load_into(game) -> void:
 	game.current_port = port if World.PORTS.has(port) else "melbourne"
 	game.ship.manual_trim = bool(data.get("manual_trim", false))
 	game.deck_mode = bool(data.get("deck_mode", false))
+	game.survey.from_text(str(data.get("survey", "")))
+	var saved_ports: Variant = data.get("known_ports", [])
+	if typeof(saved_ports) == TYPE_ARRAY:
+		for saved_port: Variant in saved_ports:
+			if World.PORTS.has(str(saved_port)):
+				game.known_ports[str(saved_port)] = true
+	var saved_shoals: Variant = data.get("known_shoals", [])
+	if typeof(saved_shoals) == TYPE_ARRAY:
+		for saved_shoal: Variant in saved_shoals:
+			game.known_shoals[str(saved_shoal)] = true
 	game.sound_muted = bool(data.get("sound_muted", false))
 	game.clock_hours = float(data.get("clock_hours", 0.0))
 	game.ship.damaged = bool(data.get("damaged", false))

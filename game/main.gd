@@ -15,6 +15,7 @@ const Shipyard = preload("res://sim/shipyard.gd")
 const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
 const Shoals = preload("res://sim/shoals.gd")
+const Survey = preload("res://sim/survey.gd")
 const World = preload("res://game/world.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
@@ -34,6 +35,12 @@ const DOCK_RADIUS := 170.0
 const SHEET_RATE_DEG := 30.0
 ## A squall is announced when its edge is this close (px).
 const SQUALL_WARNING_DISTANCE := 1800.0
+## She charts whatever passes within this distance (px: three miles).
+const SIGHT_RADIUS := 1200.0
+## The waters about the home port are known from the start (px: five miles).
+const HOME_RADIUS := 2000.0
+## The lead finds an uncharted shoal only this far ahead (px).
+const SOUNDING_RANGE := 300.0
 ## A light is pointed out when the ship passes this close (px: two miles).
 const LIGHT_NOTICE_DISTANCE := 800.0
 const REPAIR_COST := 30
@@ -102,6 +109,15 @@ var track: Array[Vector2] = []
 var ship_log: Array = []
 var record_tracks := {}
 
+## The player's own chart: what she has surveyed, the ports she knows of and
+## the shoals her lead has found. It starts nearly blank.
+var survey: Survey
+var known_ports := {}
+var known_shoals := {}
+## A picture of the unsurveyed squares, laid over the chart and the minimap.
+var fog_texture: ImageTexture
+var _surveyed_from := Vector2.INF
+
 var land_ahead := false
 ## The name of a shoal ahead that is too shallow for her, or "".
 var shoal_ahead := ""
@@ -154,7 +170,9 @@ var wake: Array[Vector2] = []
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Palette.SEA)
 	rng.randomize()
+	survey = Survey.new(World.SIZE)
 	_load_game()
+	_start_chart()
 	sea_view = SeaView.new()
 	sea_view.game = self
 	add_child(sea_view)
@@ -178,6 +196,102 @@ func _process(delta: float) -> void:
 	_update_hud()
 	sea_view.queue_redraw()
 	overlay.queue_redraw()
+
+
+# --- The player's own chart --------------------------------------------------
+
+## Make sure the chart has its starting knowledge: the home waters, and
+## anything an older save shows she has already seen.
+func _start_chart() -> void:
+	known_ports[current_port] = true
+	survey.reveal(World.port_position(current_port), HOME_RADIUS)
+	for entry: Dictionary in ship_log:
+		known_ports[entry["from"]] = true
+		known_ports[entry["to"]] = true
+		for point: Vector2 in entry["track"]:
+			survey.reveal(point, SIGHT_RADIUS)
+	_refresh_fog()
+
+
+func knows_port(port: String) -> bool:
+	return known_ports.has(port)
+
+
+## The ports she knows of that can be sailed to from here.
+func known_destinations() -> Array[String]:
+	var known: Array[String] = []
+	for port in World.destinations(current_port):
+		if knows_port(port):
+			known.append(port)
+	return known
+
+
+## What is said in a port about other ports. Returns a line for each one newly heard of.
+func _hear_of_ports(port: String) -> Array[String]:
+	var news: Array[String] = []
+	var told: Array = World.PORTS[port].get("tells_of", [])
+	for other: String in told:
+		if not knows_port(other):
+			known_ports[other] = true
+			news.append("In port you hear of %s: %s." % [World.port_name(other), World.PORTS[other]["word"]])
+	return news
+
+
+## Chart what lies about a position. A port that comes into sight is learned.
+func _survey_from(p: Vector2) -> void:
+	_surveyed_from = p
+	if survey.reveal(p, SIGHT_RADIUS) == 0:
+		return
+	_refresh_fog()
+	for port: String in World.PORTS:
+		if not knows_port(port) and survey.is_known(World.port_position(port)):
+			known_ports[port] = true
+			_show_notice("Land ho: %s is in sight, and goes on your chart." % World.port_name(port), 7.0)
+
+
+## The lead has found a shoal: it goes on the chart with its depth.
+func _discover_shoal(shoal: Dictionary) -> void:
+	var title: String = shoal["name"]
+	if known_shoals.has(title):
+		return
+	known_shoals[title] = true
+	time_scale = 1.0
+	_show_notice("The lead finds shoal water: the %s, %.1f m at low water. It goes on your chart." % [title, float(shoal["depth"])], 8.0)
+
+
+func _refresh_fog() -> void:
+	var image := Image.create(survey.wide, survey.tall, false, Image.FORMAT_RGBA8)
+	for y in survey.tall:
+		for x in survey.wide:
+			if survey.cells[y * survey.wide + x] == 0:
+				image.set_pixel(x, y, Palette.UNSURVEYED)
+			else:
+				image.set_pixel(x, y, Color(Palette.UNSURVEYED, 0.0))
+	fog_texture = ImageTexture.create_from_image(image)
+
+
+## Land on a line, as far as her chart shows it.
+func _charted_land_on(a: Vector2, b: Vector2) -> bool:
+	var steps := maxi(1, int(ceil(a.distance_to(b) / 60.0)))
+	for i in steps + 1:
+		var p := a.lerp(b, float(i) / steps)
+		if survey.is_known(p) and World.is_blocked(p):
+			return true
+	return false
+
+
+## The first shoal on a line that her chart shows and that is too shallow for her now, or "".
+func _charted_shoal_on(a: Vector2, b: Vector2) -> String:
+	var draws := draught()
+	var tide := tide_height()
+	var steps := maxi(1, int(ceil(a.distance_to(b) / 60.0)))
+	for i in steps + 1:
+		var shoal := World.shoal_at(a.lerp(b, float(i) / steps))
+		if shoal.is_empty() or not known_shoals.has(shoal["name"]):
+			continue
+		if not Shoals.can_float(Shoals.depth_m(shoal["depth"], tide), draws):
+			return shoal["name"]
+	return ""
 
 
 # --- Route planning ----------------------------------------------------------
@@ -211,9 +325,10 @@ func route_points(start: Vector2, from_mark: int) -> Array[Vector2]:
 func estimate(points: Array[Vector2], check_land: bool = true) -> Array[Dictionary]:
 	var legs := RoutePlan.legs(points, wind_from, wind_kn, hull_speed(), SailingModel.AUTO_TRIM_EFFICIENCY)
 	for leg in legs:
-		leg["crosses_land"] = check_land and World.segment_crosses_land(leg["from"], leg["to"])
-		# A shoal too shallow for her as she is loaded, at the tide as it stands now.
-		leg["shoal"] = World.shoal_on_segment(leg["from"], leg["to"], draught(), tide_height()) if check_land else ""
+		# Judged by her own chart: land and shoals she has not found are not shown.
+		leg["crosses_land"] = check_land and _charted_land_on(leg["from"], leg["to"])
+		leg["shoal"] = _charted_shoal_on(leg["from"], leg["to"]) if check_land else ""
+		leg["uncharted"] = check_land and not survey.segment_known(leg["from"], leg["to"])
 	return legs
 
 
@@ -282,7 +397,9 @@ func plan_summary(detailed: bool) -> String:
 	var upwind := 0
 	var blocked := 0
 	var shoal_names: Array[String] = []
+	var uncharted := 0
 	for leg in legs:
+		uncharted += 1 if leg["uncharted"] else 0
 		var shoal: String = leg["shoal"]
 		if leg["crosses_land"]:
 			blocked += 1
@@ -299,8 +416,8 @@ func plan_summary(detailed: bool) -> String:
 		text += " %d red leg%s zig-zagging into the wind." % [upwind, " needs" if upwind == 1 else "s need"]
 	if not shoal_names.is_empty():
 		text += " Too shallow for her now: %s." % ", ".join(shoal_names)
-	elif not World.has_pilot_route(current_port, destination, laden_draught()):
-		text += " With a full hold she cannot reach %s at low water: cross on the tide or carry less." % World.port_name(destination)
+	if uncharted > 0:
+		text += " %d leg%s through waters not yet on your chart." % [uncharted, " runs" if uncharted == 1 else "s run"]
 	if detailed:
 		var par := route_par()
 		text += " Fresh cargo earns a premium under %s." % format_hours(Trade.premium_hours(par))
@@ -434,6 +551,9 @@ func _contract_terms(contract: Dictionary) -> String:
 func _refresh_contracts() -> void:
 	var entries: Array[Dictionary] = []
 	for contract in Contracts.offers_at(current_port):
+		# A charter to a port she has never heard of is not offered.
+		if not knows_port(contract["to"]):
+			continue
 		var id: String = contract["id"]
 		var done := int(completed_contracts.get(id, 0))
 		var text := "%s. %s %s" % [contract["title"], contract["story"], _contract_terms(contract)]
@@ -687,7 +807,14 @@ func _sail(delta: float) -> void:
 			land_ahead = true
 			break
 		var shoal := World.shoal_at(probe)
-		if not shoal.is_empty() and not Shoals.can_float(Shoals.depth_m(shoal["depth"], tide), draws):
+		if shoal.is_empty():
+			continue
+		# A charted shoal is known from afar; an uncharted one only when the lead finds it.
+		if not known_shoals.has(shoal["name"]):
+			if distance > SOUNDING_RANGE:
+				continue
+			_discover_shoal(shoal)
+		if not Shoals.can_float(Shoals.depth_m(shoal["depth"], tide), draws):
 			shoal_ahead = shoal["name"]
 			break
 
@@ -733,6 +860,11 @@ func _sail(delta: float) -> void:
 			if wake.size() > WAKE_POINTS:
 				wake.pop_front()
 
+	if ship.position.distance_to(_surveyed_from) > Survey.CELL / 2.0:
+		_survey_from(ship.position)
+	var beneath := World.shoal_at(ship.position)
+	if not beneath.is_empty():
+		_discover_shoal(beneath)
 	_advance_marks()
 	if ship.position.distance_to(dest_pos) < DOCK_RADIUS:
 		_arrive()
@@ -888,7 +1020,12 @@ func _enter_port(port: String, report: String) -> void:
 	# By default the next trip is back the way she came.
 	var came_from := current_port
 	current_port = port
-	destination = came_from if came_from != port else World.destinations(port)[0]
+	known_ports[port] = true
+	if survey.reveal(World.port_position(port), HOME_RADIUS) > 0:
+		_refresh_fog()
+	for line in _hear_of_ports(port):
+		report += "\n" + line
+	destination = came_from if came_from != port else known_destinations()[0]
 	cargo = {}
 	plan = _points(plans.get(Trade.route_key(current_port, destination), []))
 	next_mark = 0
@@ -917,7 +1054,7 @@ func _enter_port(port: String, report: String) -> void:
 
 ## Pick the next port in the list as the destination.
 func _cycle_destination() -> void:
-	var options := World.destinations(current_port)
+	var options := known_destinations()
 	destination = options[(options.find(destination) + 1) % options.size()]
 	plan = _points(plans.get(Trade.route_key(current_port, destination), []))
 	next_mark = 0

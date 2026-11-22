@@ -49,7 +49,7 @@ func _run() -> void:
 	game._change_cargo(Trade.goods_sold_at("melbourne")[0], 999)
 	game.open_chart()
 	await _shot("02_chart_straight_line")
-	game.chart.use_pilot()
+	game.chart.add_mark(Vector2(10500, 4500))
 	game.chart.add_mark(Vector2(9000, 7000))
 	await _shot("03_chart_with_plan")
 	game.close_chart()
@@ -145,6 +145,15 @@ func _run() -> void:
 	game.ship_id = "schooner"
 	game._change_cargo(Trade.goods_sold_at(game.current_port)[0], 999)
 	game.open_chart()
-	game.chart.use_pilot()
+	game.chart.add_mark(Vector2(9000, 7000))
 	await _shot("23_chart_for_a_schooner")
+	# The same chart once she has surveyed the whole bay and found every shoal.
+	game.survey.reveal(World.SIZE / 2.0, 30000.0)
+	for shoal: Dictionary in World.shoals():
+		game.known_shoals[shoal["name"]] = true
+	for port: String in World.PORTS:
+		game.known_ports[port] = true
+	game._refresh_fog()
+	game.chart.refresh()
+	await _shot("24_chart_fully_surveyed")
 	quit(0)

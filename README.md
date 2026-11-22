@@ -38,8 +38,13 @@ Built with [Godot 4.3](https://godotengine.org/download).
   too deep for the water runs aground. The cutter crosses the sands; the
   ketch needs the tide; the schooner keeps to the channels and can only
   reach Geelong on the tide with part of a cargo. The chart colours each
-  shoal for your ship, and the pilot's course keeps clear of the ones she
-  cannot cross.
+  shoal you have found for your ship as she is loaded.
+- You chart the bay yourself. The chart starts blank except for the waters
+  about Melbourne; whatever passes within three miles of the ship is surveyed
+  for good. Shoals are unmarked until your lead finds them, and you can run
+  aground on one you did not know of. You hear of new ports in the ports you
+  reach, or find them by sighting them. Your own best passages, loaded with
+  the chart's Record button, are your sailing directions.
 - A Pause button under sail.
 - A trim bar above the speed panel: a green band shows where the sail sets
   well and slides as the heading or wind changes; keep the white marker in it.
@@ -104,6 +109,8 @@ godot --headless --path . -s tests/smoke_test.gd
 | Place names and lighthouses on the chart | `data/chart_features.gd` |
 | Shoals: where they are and how deep | `data/shoals.gd` |
 | How draught, depth and tide decide who floats | `sim/shoals.gd` |
+| Which ports tell you of which others | `data/ports.gd` (`tells_of`) |
+| How the player's own chart is kept | `sim/survey.gd` |
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |

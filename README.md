@@ -27,8 +27,12 @@ Built with [Godot 4.3](https://godotengine.org/download).
   boat goes in every direction.
 - In port, **Plan route** opens a chart. Tap the water to add marks; each leg
   shows an estimated speed and time, and turns red if it points too close to
-  the wind. Under sail the plan is drawn on the water and the game tracks
-  whether you are ahead of or behind it.
+  the wind.
+- Under sail there is no line on the water. A compass across the top shows
+  your heading and a gold COURSE pointer: the bearing of the leg as you laid
+  it off in port. It does not correct itself if you stray. The **Chart**
+  button stops the passage and shows the course you have sailed, where you
+  are, how far off your line, and what the next mark bears from there.
 - Sound: wind that rises with the breeze, water along the hull that grows
   with speed, a sail that shakes when it is not drawing, rain in a squall and
   a bell on arrival. A "Sound" button under sail switches it off.
@@ -47,7 +51,8 @@ Built with [Godot 4.3](https://godotengine.org/download).
   the chart's Record button, are your sailing directions.
 - Docking: you bring her in yourself. Under 2 knots at the pier is a clean
   landing; faster costs money and time; over 4 knots she strikes the pier.
-  Turn into the wind, reef or ease the sheet to lose way. Or anchor off when
+  The Sail button steps full, reefed, lowered: lowered, she coasts and loses
+  way on any heading while still answering the helm. Or anchor off when
   near the port: safe, but the cargo goes ashore by boat, costing an hour
   and a fee.
 - A New game button on the port screen. It erases everything, so it asks
@@ -122,7 +127,8 @@ godot --headless --path . -s tests/smoke_test.gd
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |
-| How the boat sails | `sim/sailing_model.gd`, `sim/ship_state.gd` |
+| How the boat sails, and how fast she stops with the sail lowered | `sim/sailing_model.gd`, `sim/ship_state.gd` |
+| The compass strip | `game/hud.gd` |
 | Wind, squalls and tide | `sim/weather.gd`, `sim/tide.gd` |
 | How fast time runs | `sim/time_compression.gd` |
 | Where buttons and panels sit | `game/ui_builder.gd` |
@@ -144,7 +150,7 @@ it starts, every port lands in water with room to dock.
 - `game/` what is on screen:
   - `main.gd` the game's state and what happens in port and under sail
   - `sea_view.gd` the sailing view from above; `deck_view.gd` from the deck
-  - `hud.gd` wind dial, minimap, trim bar and speed panel
+  - `hud.gd` compass, wind dial, minimap, trim bar and speed panel
   - `chart.gd`, `log_screen.gd`, `list_screen.gd` the full-screen pages
   - `ui_builder.gd` where every button and panel is laid out
   - `world.gd` the map; `save_game.gd` the save file

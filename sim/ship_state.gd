@@ -11,6 +11,8 @@ const TURN_RATE_DEG_PER_MIN := 50.0
 const MIN_STEERAGE := 0.35
 ## How quickly speed settles on a new point of sail (game seconds).
 const SPEED_TAU_S := 300.0
+## With the sail lowered the hull's drag takes the way off her faster.
+const COAST_TAU_S := 120.0
 
 var position := Vector2.ZERO
 var heading := 0.0
@@ -23,6 +25,8 @@ var manual_trim := false
 var sheet_deg := 45.0
 ## Reefed, the sail is smaller: slower in ordinary wind, safe in a blow.
 var reefed := false
+## Sail lowered: nothing drives her, and she loses way on any heading.
+var sail_down := false
 ## Too much wind for the sail she is carrying.
 var overpowered := false
 ## Seconds spent overpowered. Past the limit, a sail splits.
@@ -53,7 +57,7 @@ func step(dt: float, rudder: float, wind_from: float, wind_kn: float, current_kn
 		trim_efficiency = SailingModel.trim_efficiency(sheet_deg, twa)
 	else:
 		trim_efficiency = SailingModel.AUTO_TRIM_EFFICIENCY
-	overpowered = SailingModel.is_overpowered(wind_kn, reefed)
+	overpowered = not sail_down and SailingModel.is_overpowered(wind_kn, reefed)
 	var target := SailingModel.target_speed_kn(twa, SailingModel.sail_wind_kn(wind_kn, reefed), hull_speed_kn, trim_efficiency)
 	if overpowered:
 		# Laid over on her side, she goes slower and slides sideways.
@@ -65,7 +69,11 @@ func step(dt: float, rudder: float, wind_from: float, wind_kn: float, current_kn
 		strain_s = maxf(0.0, strain_s - dt)
 	if damaged:
 		target *= DAMAGED_SPEED_FACTOR
-	speed_kn = lerpf(target, speed_kn, exp(-dt / SPEED_TAU_S))
+	var settle_s := SPEED_TAU_S
+	if sail_down:
+		target = 0.0
+		settle_s = COAST_TAU_S
+	speed_kn = lerpf(target, speed_kn, exp(-dt / settle_s))
 
 	# Leeway pushes the boat away from the wind; the current carries her bodily.
 	var leeway := deg_to_rad(SailingModel.leeway_deg(twa)) * signf(side_angle) * leeway_factor * (2.0 if overpowered else 1.0)

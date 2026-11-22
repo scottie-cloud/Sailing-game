@@ -81,6 +81,14 @@ func _run() -> void:
 	game._toggle_pause()
 	await _shot("11_paused")
 	game._toggle_pause()
+	game._toggle_reef()
+	await _settle(10)
+	await _shot("27_sail_lowered")
+	game.open_chart()
+	await _settle(4)
+	await _shot("28_chart_under_sail")
+	game.close_chart()
+	game._toggle_reef()
 
 	# Near the coast, to see land drawn in the main view.
 	game.ship.position = World.port_position("mornington") + Vector2(-300, -200)

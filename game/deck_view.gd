@@ -130,7 +130,7 @@ func _draw() -> void:
 	# She heels away from the wind, so the horizon tips the other way.
 	var sail_wind: float = SailingModel.sail_wind_kn(game.wind_kn, game.ship.reefed)
 	var heel := deg_to_rad(clampf(sail_wind * 0.6 * sin(deg_to_rad(twa)), 0.0, 16.0)) * side
-	if SailingModel.in_no_go(twa):
+	if SailingModel.in_no_go(twa) or game.ship.sail_down:
 		heel = 0.0
 	draw_set_transform(Vector2(w / 2.0, horizon), heel, Vector2.ONE)
 
@@ -155,7 +155,6 @@ func _draw() -> void:
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_own_ship(w, h, twa, side)
-	_draw_compass(w, heading)
 
 
 func _draw_clouds(heading: float, focal: float, daylight: float, gloom: float) -> void:
@@ -223,8 +222,7 @@ func _draw_land(focal: float, haze: Color, daylight: float) -> void:
 			draw_rect(Rect2(left, -minf(tall * 0.12, 5.0), right - left + 1.0, minf(tall * 0.12, 5.0)), Color("e3d6a1").lerp(haze, faded))
 
 
-## Ports show as a white tower with a name once they are in sight; the next
-## mark shows as a gold flag when it is within three miles.
+## Ports show as a white tower with a name once they are in sight.
 func _draw_landmarks(heading: float, focal: float) -> void:
 	var font := ThemeDB.fallback_font
 	var limit := visibility()
@@ -260,16 +258,6 @@ func _draw_landmarks(heading: float, focal: float) -> void:
 			draw_circle(Vector2(x, -tall), 2.5, GOLD)
 		if distance < 1600.0:
 			draw_string(font, Vector2(x - 150.0, -tall - 10.0), World.light_label(light), HORIZONTAL_ALIGNMENT_CENTER, 300, 16, Color(1.0, 0.95, 0.75))
-
-	var to_mark: Vector2 = game.target_point() - game.ship.position
-	var mark_distance := to_mark.length()
-	var mark_offset := wrapf(SailingModel.vector_to_bearing(to_mark) - heading, -PI, PI)
-	if game.next_mark < game.plan.size() and mark_distance < 1200.0 and mark_distance > 30.0 and absf(mark_offset) < FOV * 0.6:
-		var x := tan(mark_offset) * focal
-		var y := EYE_HEIGHT_M * focal / (mark_distance * METRES_PER_PX)
-		var tall := maxf(_apparent_height(8.0, mark_distance, focal), 10.0)
-		draw_line(Vector2(x, y), Vector2(x, y - tall), GOLD, 2.0)
-		draw_colored_polygon(PackedVector2Array([Vector2(x, y - tall), Vector2(x + tall * 0.6, y - tall * 0.8), Vector2(x, y - tall * 0.6)]), GOLD)
 
 
 ## Streaks of foam on the water, anchored to the sea so they slide past as
@@ -317,6 +305,9 @@ func _draw_own_ship(w: float, h: float, twa: float, side: float) -> void:
 	var flutter: float = sin(game.anim_time * 18.0) * 0.06 if no_go else 0.0
 	var sheet_deg: float = game.ship.sheet_deg if game.ship.manual_trim else SailingModel.ideal_sheet_deg(twa)
 	var eased := clampf(sheet_deg / 90.0, 0.05, 1.0) + flutter
+	var lowered: bool = game.ship.sail_down
+	if lowered:
+		eased = 0.05
 	var leeward := -side
 
 	var bow := Vector2(centre, h * 0.66)
@@ -331,50 +322,17 @@ func _draw_own_ship(w: float, h: float, twa: float, side: float) -> void:
 	var sail := Color(0.96, 0.94, 0.86, 0.9)
 	# Headsail: set forward, drawing out to leeward.
 	var jib_clew := Vector2(centre + leeward * w * (0.05 + 0.2 * eased), h * 0.72)
-	draw_colored_polygon(PackedVector2Array([bow + Vector2(0, -h * 0.07), Vector2(centre, h * 0.05), jib_clew]), sail)
+	if not lowered:
+		draw_colored_polygon(PackedVector2Array([bow + Vector2(0, -h * 0.07), Vector2(centre, h * 0.05), jib_clew]), sail)
 	# Mainsail: from the mast back towards you, the boom swinging out to leeward.
 	var boom_end := Vector2(centre + leeward * w * (0.06 + 0.4 * eased), h * 0.9)
-	draw_colored_polygon(PackedVector2Array([mast_head, mast_foot + Vector2(0, -h * 0.06), boom_end]), sail)
+	if not lowered:
+		draw_colored_polygon(PackedVector2Array([mast_head, mast_foot + Vector2(0, -h * 0.06), boom_end]), sail)
 	draw_line(mast_foot + Vector2(0, -h * 0.06), boom_end, Color("4a2d16"), 7.0)
 	draw_line(mast_foot, mast_head, Color("5a3a1e"), 8.0)
-	if game.ship.reefed:
+	if lowered:
+		# The lowered sail, rolled up along the boom.
+		draw_line(mast_foot + Vector2(0, -h * 0.075), boom_end + Vector2(0, -h * 0.015), sail, 12.0)
+	elif game.ship.reefed:
 		# A reefed sail shows its lashed-down foot.
 		draw_line(mast_foot + Vector2(0, -h * 0.12), boom_end + Vector2(0, -h * 0.05), Color("8a7a5a"), 4.0)
-
-
-## A strip of compass across the top: steer by it when nothing is in sight.
-func _draw_compass(w: float, heading: float) -> void:
-	var font := ThemeDB.fallback_font
-	var centre := w / 2.0
-	var top := 150.0
-	var half_width := 300.0
-	var px_per_degree := 5.0
-	draw_rect(Rect2(centre - half_width, top, half_width * 2.0, 48.0), Color(0, 0, 0, 0.55))
-	var heading_deg := rad_to_deg(heading)
-	var names := {0: "N", 45: "NE", 90: "E", 135: "SE", 180: "S", 225: "SW", 270: "W", 315: "NW"}
-	for degrees in range(0, 360, 5):
-		var offset := wrapf(degrees - heading_deg, -180.0, 180.0)
-		if absf(offset) > half_width / px_per_degree - 2.0:
-			continue
-		var x := centre + offset * px_per_degree
-		var major := degrees % 15 == 0
-		draw_line(Vector2(x, top + 48.0), Vector2(x, top + (30.0 if major else 40.0)), Color.WHITE, 2.0)
-		if names.has(degrees):
-			draw_string(font, Vector2(x - 30.0, top + 24.0), names[degrees], HORIZONTAL_ALIGNMENT_CENTER, 60, 22, Color.WHITE)
-		elif degrees % 30 == 0:
-			draw_string(font, Vector2(x - 30.0, top + 24.0), str(degrees), HORIZONTAL_ALIGNMENT_CENTER, 60, 18, Color(1, 1, 1, 0.8))
-	# Where the wind is coming from (blue) and where the next mark lies (gold).
-	_compass_marker(centre, top, half_width, px_per_degree, rad_to_deg(game.wind_from) - heading_deg, Color("7fd0ff"), "WIND")
-	var to_target: Vector2 = game.target_point() - game.ship.position
-	_compass_marker(centre, top, half_width, px_per_degree, rad_to_deg(SailingModel.vector_to_bearing(to_target)) - heading_deg, GOLD, "MARK")
-	draw_colored_polygon(PackedVector2Array([Vector2(centre - 9.0, top - 2.0), Vector2(centre + 9.0, top - 2.0), Vector2(centre, top + 12.0)]), Color.WHITE)
-	draw_string(font, Vector2(centre - 100.0, top + 106.0), "Heading %03d°" % posmod(roundi(heading_deg), 360), HORIZONTAL_ALIGNMENT_CENTER, 200, 22, Color.WHITE)
-
-
-## A marker under the strip. Off the end of the strip it sits at the edge,
-## showing which way to turn to bring it round.
-func _compass_marker(centre: float, top: float, half_width: float, px_per_degree: float, offset_deg: float, colour: Color, label: String) -> void:
-	var offset := wrapf(offset_deg, -180.0, 180.0)
-	var x := centre + clampf(offset * px_per_degree, -half_width + 10.0, half_width - 10.0)
-	draw_colored_polygon(PackedVector2Array([Vector2(x - 9.0, top + 62.0), Vector2(x + 9.0, top + 62.0), Vector2(x, top + 48.0)]), colour)
-	draw_string(ThemeDB.fallback_font, Vector2(x - 40.0, top + 80.0), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 14, colour)

@@ -1,5 +1,6 @@
 extends Node2D
-## The sailing view from above: water, coast, ports, the plan and the ship.
+## The sailing view from above: water, coast, ports and the ship. The plan
+## is not drawn on the water: under sail she is steered by compass.
 ## It reads the state of the game and draws it; it changes nothing.
 
 const SailingModel = preload("res://sim/sailing_model.gd")
@@ -101,8 +102,6 @@ func _draw() -> void:
 	_draw_ports()
 	if game.is_sailing():
 		_draw_squalls()
-		_draw_record()
-		_draw_plan()
 		_draw_wake()
 		_draw_ship()
 
@@ -239,28 +238,6 @@ func _draw_squalls() -> void:
 			draw_circle(centre, radius * 0.6, Color(0.08, 0.1, 0.16, 0.25))
 
 
-## The course of the record passage on this route, as a faint dashed line.
-func _draw_record() -> void:
-	var record := record_track()
-	for i in range(1, record.size()):
-		draw_dashed_line(record[i - 1], record[i], Color(RECORD, 0.45), 3.0, 14.0)
-
-
-## The planned route on the water: a dashed line through numbered marks.
-func _draw_plan() -> void:
-	if plan.is_empty():
-		return
-	var font := ThemeDB.fallback_font
-	var points := route_points(World.port_position(current_port), 0)
-	for i in range(1, points.size()):
-		draw_dashed_line(points[i - 1], points[i], Color(1, 1, 1, 0.35), 4.0, 24.0)
-	for i in plan.size():
-		var colour := GOLD if i == next_mark else Color(1, 1, 1, 0.3 if i < next_mark else 0.7)
-		draw_arc(plan[i], game.MARK_RADIUS, 0.0, TAU, 48, Color(colour, colour.a * 0.5), 3.0)
-		draw_circle(plan[i], 20.0, colour)
-		draw_string(font, plan[i] + Vector2(-20, 9), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 40, 26, Color.BLACK)
-
-
 func _draw_ship() -> void:
 	var side_angle := SailingModel.signed_wind_angle(ship.heading, wind_from)
 	var twa := absf(rad_to_deg(side_angle))
@@ -272,16 +249,6 @@ func _draw_ship() -> void:
 		var spread := deg_to_rad(lerpf(-SailingModel.NO_GO_DEG, SailingModel.NO_GO_DEG, i / 12.0))
 		wedge.append(ship.position + SailingModel.bearing_to_vector(wind_from + spread) * 180.0)
 	draw_colored_polygon(wedge, Color(0.9, 0.15, 0.1, 0.45 if no_go else 0.2))
-
-	# Gold arrow towards the next mark, or the destination.
-	var to_target := target_point() - ship.position
-	var direction := to_target.normalized()
-	var tip := ship.position + direction * 250.0
-	var base := ship.position + direction * 215.0
-	var wing := direction.orthogonal() * 16.0
-	draw_colored_polygon(PackedVector2Array([tip, base + wing, base - wing]), GOLD)
-	draw_string(ThemeDB.fallback_font, tip + direction * 34.0 + Vector2(-60, 8),
-		"%.1f nm" % (to_target.length() / ShipState.PX_PER_NM), HORIZONTAL_ALIGNMENT_CENTER, 120, 22, GOLD)
 
 	var ship_size: float = Shipyard.SHIPS[ship_id]["size"]
 	draw_set_transform(ship.position, ship.heading, Vector2(ship_size, ship_size))
@@ -296,5 +263,9 @@ func _draw_ship() -> void:
 		sheet = deg_to_rad(6.0)
 		flutter = sin(anim_time * 18.0) * 0.14
 	var side := 1.0 if side_angle >= 0.0 else -1.0
+	if ship.sail_down:
+		# Lowered, the sail lies along the boom amidships.
+		sheet = deg_to_rad(2.0)
+		flutter = 0.0
 	ShipArt.draw_top_down(self, ship_id, sheet, side, flutter)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -110,8 +110,8 @@ static func _build_sailing_labels(game, root: Control) -> void:
 
 
 ## The buttons used under sail. Left column, top to bottom: Pause and view,
-## trim switch, haul in, steer left. Right column: sound, reef, ease out,
-## steer right.
+## chart, trim switch, haul in, steer left. Right column: sound, sail (full,
+## reefed, lowered), ease out, steer right.
 static func _build_helm(game, root: Control) -> void:
 	var bottom_left := Control.PRESET_BOTTOM_LEFT
 	var bottom_right := Control.PRESET_BOTTOM_RIGHT
@@ -123,6 +123,7 @@ static func _build_helm(game, root: Control) -> void:
 	game.ease_button = _corner_button(root, "Ease out", Callable(), bottom_right, -200, -292, -30, -214)
 	game.reef_button = _corner_button(root, "", game._toggle_reef, bottom_right, -200, -366, -30, -306, SMALL_TEXT)
 	game.view_button = _corner_button(root, "Deck", game._toggle_view, top_left, 120, 236, 200, 292, SMALL_TEXT)
+	game.chart_button = _corner_button(root, "Chart", game.open_chart, top_left, 30, 300, 200, 356, SMALL_TEXT)
 	game.pause_button = _corner_button(root, "Pause", game._toggle_pause, top_left, 30, 236, 112, 292, SMALL_TEXT)
 	game.sound_button = _corner_button(root, "", game._toggle_sound, Control.PRESET_TOP_RIGHT, -200, 246, -30, 296, SMALL_TEXT)
 	# Shown only when close to the destination, just above the trim bar.

@@ -385,6 +385,21 @@ func test_heavy_weather() -> void:
 	check(reefed.speed_kn < full.speed_kn * 0.8, "reefing costs speed in ordinary wind")
 	check(not full.overpowered and not full.damaged, "ordinary wind does no harm under full sail")
 
+	# Sail lowered: she loses way on any heading, and no wind can hurt her.
+	var coasting := ShipState.new()
+	coasting.heading = 0.0
+	coasting.speed_kn = 5.0
+	coasting.sail_down = true
+	for i in 180:
+		coasting.step(1.0, 0.0, EAST, 24.0)
+	check(coasting.speed_kn < 2.0 and not coasting.overpowered, "with the sail lowered she is under 2 knots in three minutes")
+	coasting.sail_down = false
+	for i in 900:
+		coasting.step(1.0, 0.0, EAST, 12.0)
+	check(coasting.speed_kn > 3.0, "and she gathers way again when it is set")
+	var off := Track.off_line(Vector2(50, 30), Vector2(0, 0), Vector2(100, 0))
+	check(near(off.x, 0.0) and near(off.y, 30.0), "how far off a course line she lies is measured square to it")
+
 	var pressed := ShipState.new()
 	var snug := ShipState.new()
 	snug.reefed = true

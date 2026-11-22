@@ -45,6 +45,11 @@ Built with [Godot 4.3](https://godotengine.org/download).
   aground on one you did not know of. You hear of new ports in the ports you
   reach, or find them by sighting them. Your own best passages, loaded with
   the chart's Record button, are your sailing directions.
+- Docking: you bring her in yourself. Under 2 knots at the pier is a clean
+  landing; faster costs money and time; over 4 knots she strikes the pier.
+  Turn into the wind, reef or ease the sheet to lose way. Or anchor off when
+  near the port: safe, but the cargo goes ashore by boat, costing an hour
+  and a fee.
 - A Pause button under sail.
 - A trim bar above the speed panel: a green band shows where the sail sets
   well and slides as the heading or wind changes; keep the white marker in it.
@@ -111,6 +116,7 @@ godot --headless --path . -s tests/smoke_test.gd
 | How draught, depth and tide decide who floats | `sim/shoals.gd` |
 | Which ports tell you of which others | `data/ports.gd` (`tells_of`) |
 | How the player's own chart is kept | `sim/survey.gd` |
+| Docking speeds, costs and delays | `sim/docking.gd` |
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |

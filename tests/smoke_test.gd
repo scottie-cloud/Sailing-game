@@ -5,6 +5,7 @@ extends SceneTree
 
 const Trade = preload("res://sim/trade.gd")
 const Contracts = preload("res://sim/contracts.gd")
+const Docking = preload("res://sim/docking.gd")
 const World = preload("res://game/world.gd")
 
 ## A mark in open water in the middle of the bay.
@@ -104,9 +105,14 @@ func _run() -> void:
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)
 	var money_before: int = game.money
+	# Coming in: near the port she may anchor off; this time she goes alongside, gently.
+	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 400.0
+	check(game.near_destination(), "close to the port she is in the roads")
+	game.ship.speed_kn = 1.0
 	game.ship.position = dest_pos + (World.SIZE / 2.0 - dest_pos).normalized() * 100.0
 	await _frames(5)
 	check(not game.is_sailing(), "the ship docks at the destination")
+	check(game.port_report.text.contains("made fast without a scrape"), "a slow approach makes a clean landing")
 	check(game.current_port == destination, "the ship is now at the destination port")
 	check(game.money > money_before, "the cargo is sold on arrival")
 	check(game.destination == origin, "the next destination is the port we came from")
@@ -227,9 +233,15 @@ func _run() -> void:
 	# Finish the passage, then use the shipyard and take a charter.
 	var second_port: String = game.destination
 	var second_pos := World.port_position(second_port)
-	game.ship.position = second_pos + (World.SIZE / 2.0 - second_pos).normalized() * 100.0
-	await _frames(5)
+	# This time she anchors off: safe, but an hour is lost.
+	game.ship.position = second_pos + (World.SIZE / 2.0 - second_pos).normalized() * 400.0
+	var before_anchoring: float = game.passage_seconds
+	game._anchor_off()
+	await _frames(2)
 	check(not game.is_sailing() and game.current_port == second_port, "the second passage ends in port")
+	check(game.port_report.text.contains("anchored off"), "anchoring off is reported")
+	check(not game.anchor_button.visible, "the anchor button goes away in port")
+	check(game.passage_seconds - before_anchoring >= Docking.ANCHOR_DELAY_S, "and costs an hour")
 
 	game.money = 5000
 	game.open_shipyard()
@@ -260,9 +272,12 @@ func _run() -> void:
 	await _frames(5)
 	check(game.ship.turn_factor < 1.0 and game.ship.leeway_factor < 1.0, "the new ship and keel change how she handles")
 	var charter_pos := World.port_position(offer["to"])
+	# And this time she comes in far too fast.
+	game.ship.speed_kn = 6.0
 	game.ship.position = charter_pos + (World.SIZE / 2.0 - charter_pos).normalized() * 100.0
 	await _frames(5)
 	check(not game.is_sailing(), "the charter passage ends in port")
+	check(game.port_report.text.contains("struck the pier"), "arriving at speed strikes the pier")
 	check(game.port_report.text.contains("Charter fulfilled"), "the charter is fulfilled on arrival")
 	check(int(game.completed_contracts.get(offer["id"], 0)) == 1 and game.active_contract == "", "the charter is recorded and cleared")
 	check(game.money > money_before_charter, "the charter and cargo pay")

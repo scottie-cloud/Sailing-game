@@ -4,6 +4,7 @@ extends SceneTree
 ##   SCREENSHOT_DIR=/tmp/shots godot --path . --rendering-driver opengl3 -s tests/screenshots.gd
 
 const World = preload("res://game/world.gd")
+const SailingModel = preload("res://sim/sailing_model.gd")
 const Trade = preload("res://sim/trade.gd")
 
 var out_dir := ""
@@ -132,6 +133,14 @@ func _run() -> void:
 	game.ship_id = "cutter"
 	game.ship.position = Vector2(10500, 7500)
 	await _settle(4)
+
+	# Coming in to dock: the pier's ring and the Anchor off button.
+	var pier := World.port_position(game.destination)
+	game.ship.position = pier + (World.SIZE / 2.0 - pier).normalized() * 420.0
+	game.ship.heading = SailingModel.vector_to_bearing(pier - game.ship.position)
+	game.ship.speed_kn = 3.0
+	await _settle(3)
+	await _shot("25_coming_in_to_dock")
 
 	var destination: String = game.destination
 	var dest_pos := World.port_position(destination)

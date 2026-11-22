@@ -124,6 +124,8 @@ static func _build_helm(game, root: Control) -> void:
 	game.view_button = _corner_button(root, "Deck", game._toggle_view, top_left, 120, 236, 200, 292, SMALL_TEXT)
 	game.pause_button = _corner_button(root, "Pause", game._toggle_pause, top_left, 30, 236, 112, 292, SMALL_TEXT)
 	game.sound_button = _corner_button(root, "", game._toggle_sound, Control.PRESET_TOP_RIGHT, -200, 246, -30, 296, SMALL_TEXT)
+	# Shown only when close to the destination, just above the trim bar.
+	game.anchor_button = _corner_button(root, "Anchor off", game._anchor_off, Control.PRESET_CENTER_BOTTOM, -120, -302, 120, -250, SMALL_TEXT)
 
 
 ## The port screen fills the height of the screen and scrolls if it has to.

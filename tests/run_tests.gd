@@ -16,6 +16,7 @@ const Contracts = preload("res://sim/contracts.gd")
 const SoundMix = preload("res://sim/sound_mix.gd")
 const Shoals = preload("res://sim/shoals.gd")
 const Survey = preload("res://sim/survey.gd")
+const Docking = preload("res://sim/docking.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -57,6 +58,7 @@ func _init() -> void:
 	test_chart()
 	test_shallow_water()
 	test_survey()
+	test_docking()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -737,3 +739,24 @@ func test_survey() -> void:
 				frontier.append(other)
 	check(hearsay_ok and heard.size() == World.PORTS.size(), "every port can be heard of by word of mouth from Melbourne")
 	check(World.PORTS["melbourne"]["tells_of"].size() == 2, "the game starts with two ports to sail for")
+
+
+func test_docking() -> void:
+	check(Docking.grade(0.0) == Docking.Landing.CLEAN and Docking.grade(Docking.CLEAN_KN) == Docking.Landing.CLEAN, "a slow approach is a clean landing")
+	check(Docking.grade(3.0) == Docking.Landing.HARD and Docking.grade(Docking.STRUCK_KN) == Docking.Landing.HARD, "a brisk approach comes in hard")
+	check(Docking.grade(Docking.STRUCK_KN + 0.1) == Docking.Landing.STRUCK, "a fast approach strikes the pier")
+	var clean := Docking.alongside(1.5)
+	var hard := Docking.alongside(3.0)
+	var harder := Docking.alongside(3.9)
+	var struck := Docking.alongside(6.0)
+	check(clean["cost"] == 0 and near(clean["delay_s"], 0.0), "a clean landing costs nothing")
+	check(hard["cost"] > 0 and harder["cost"] > hard["cost"] and float(hard["delay_s"]) > 0.0, "coming in hard costs more the faster she arrives")
+	check(struck["cost"] > harder["cost"] and float(struck["delay_s"]) > float(hard["delay_s"]), "striking the pier costs most of all")
+	var anchored := Docking.anchored(20)
+	check(anchored["landing"] == Docking.Landing.ANCHORED and anchored["cost"] == 20 * Docking.LIGHTERAGE_PER_UNIT, "anchoring off pays the lighters by the unit")
+	check(near(anchored["delay_s"], Docking.ANCHOR_DELAY_S) and float(anchored["delay_s"]) > float(hard["delay_s"]), "and takes longer than a hard landing")
+	check(Docking.anchored(0)["cost"] == 0, "with an empty hold there is nothing to lighter")
+	var worded := true
+	for landing: Dictionary in [clean, hard, struck, anchored, Docking.anchored(0)]:
+		worded = worded and String(landing["text"]).length() > 10
+	check(worded, "every landing has a line for the port report")

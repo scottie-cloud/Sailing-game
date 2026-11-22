@@ -9,6 +9,7 @@ const World = preload("res://game/world.gd")
 const ShipArt = preload("res://game/ship_art.gd")
 const Palette = preload("res://game/palette.gd")
 const Shoals = preload("res://sim/shoals.gd")
+const Docking = preload("res://sim/docking.gd")
 const LAND_FILL := Palette.LAND_FILL
 const LAND_EDGE := Palette.LAND_EDGE
 const SHALLOW_OUTER := Palette.SHALLOW_OUTER
@@ -216,7 +217,13 @@ func _draw_ports() -> void:
 	for port: String in World.PORTS:
 		var p := World.port_position(port)
 		if game.is_sailing() and port == destination:
-			draw_arc(p, game.DOCK_RADIUS, 0.0, TAU, 48, GOLD, 4.0)
+			# The pier's ring shows how the landing would go at her present speed.
+			var ring := GOLD
+			if game.near_destination():
+				var landing := Docking.grade(ship.speed_kn)
+				ring = Color("5fe36a") if landing == Docking.Landing.CLEAN else (Color("f0a93a") if landing == Docking.Landing.HARD else Color("e2553f"))
+				draw_arc(p, game.ANCHOR_RANGE, 0.0, TAU, 64, Color(1, 1, 1, 0.25), 2.0)
+			draw_arc(p, game.DOCK_RADIUS, 0.0, TAU, 48, ring, 6.0)
 		draw_circle(p, 26.0, Color("7a5230"))
 		draw_circle(p, 14.0, Color("f4ecd8"))
 		draw_string(font, p + Vector2(-120, -44), World.port_name(port), HORIZONTAL_ALIGNMENT_CENTER, 240, 30, Color.WHITE)

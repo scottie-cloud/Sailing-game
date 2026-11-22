@@ -46,7 +46,7 @@ func _draw_minimap() -> void:
 	draw_texture_rect(World.minimap_texture(), Rect2(origin, map_size), false)
 	# What she has not surveyed is blank.
 	var fog: ImageTexture = game.fog_texture
-	draw_texture_rect(fog, Rect2(origin, Vector2(fog.get_width(), fog.get_height()) * Survey.CELL * map_scale), false)
+	draw_texture_rect_region(fog, Rect2(origin, map_size), Rect2(Vector2.ZERO, World.SIZE / Survey.CELL))
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	if route.size() > 2:
 		for i in range(1, route.size()):

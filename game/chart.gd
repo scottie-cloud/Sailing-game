@@ -189,9 +189,10 @@ func _draw() -> void:
 
 	# Everything she has not surveyed is blank.
 	var fog: ImageTexture = game.fog_texture
-	draw_texture_rect(fog, Rect2(origin, Vector2(fog.get_width(), fog.get_height()) * Survey.CELL * s), false)
+	# Only the part of the picture that lies on the chart is used, so nothing spills past its edge.
+	draw_texture_rect_region(fog, map_rect, Rect2(Vector2.ZERO, World.SIZE / Survey.CELL))
 	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0),
-		"Blank: not yet surveyed. Gold dots: lights. Shoals you have found: amber needs the tide, red is too shallow for her.",
+		"Blank: not yet surveyed. Gold dots: lights. Shoals: amber needs the tide, red is too shallow.",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.15, 0.12, 0.05, 0.85))
 
 	# Wind arrows across the open water.

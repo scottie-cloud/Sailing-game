@@ -7,10 +7,11 @@ const SailingModel = preload("res://sim/sailing_model.gd")
 const World = preload("res://game/world.gd")
 
 const BAR_HEIGHT := 112.0
-const SEA := Color("1f6f9c")
-const LAND_FILL := Color("5d8a4a")
-const GOLD := Color("ffd24a")
-const RECORD := Color("7fe7ff")
+const Palette = preload("res://game/palette.gd")
+const SEA := Palette.SEA
+const LAND_FILL := Palette.LAND_FILL
+const GOLD := Palette.GOLD
+const RECORD := Palette.RECORD
 const SLOW_LEG := Color("ffe36b")
 const FAST_LEG := Color("5fe36a")
 const UPWIND_LEG := Color("ff5a4a")

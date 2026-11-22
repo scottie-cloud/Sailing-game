@@ -4,18 +4,7 @@ extends RefCounted
 ## recovers slowly, so the same run pays less each time it is repeated with a
 ## big hold.
 
-const WANTED := {
-	"newspapers": ["geelong", "queenscliff"],
-	"tools": ["geelong", "barwon"],
-	"butter": ["melbourne"],
-	"wool": ["melbourne"],
-	"fish": ["melbourne", "geelong"],
-	"lime": ["melbourne", "geelong"],
-	"fruit": ["melbourne", "queenscliff"],
-	"timber": ["melbourne", "geelong"],
-	"crayfish": ["melbourne"],
-	"onions": ["melbourne", "mornington"],
-}
+const Goods = preload("res://data/goods.gd")
 const WANTED_FACTOR := 1.25
 
 ## Each unit already on the market knocks this much off the price.
@@ -30,7 +19,9 @@ static func key(port: String, good_id: String) -> String:
 
 
 static func is_wanted(good_id: String, port: String) -> bool:
-	var ports: Array = WANTED.get(good_id, [])
+	if not Goods.GOODS.has(good_id):
+		return false
+	var ports: Array = Goods.GOODS[good_id].get("wanted_at", [])
 	return ports.has(port)
 
 

@@ -76,6 +76,11 @@ jobs:
           git commit -qm "Screenshots for $GITHUB_SHA"
           git push -f "$(git -C "$GITHUB_WORKSPACE" remote get-url origin)" ci-screenshots
 
+      # A script error while drawing only shows up when the game is on screen.
+      - name: No script errors while on screen
+        run: |
+          if [ -f "$RUNNER_TEMP/screenshots.log" ] && grep "SCRIPT ERROR" "$RUNNER_TEMP/screenshots.log"; then exit 1; fi
+
       - name: Install web export templates
         run: |
           curl -sSfL -o "$RUNNER_TEMP/templates.tpz" "$GODOT_RELEASES/$GODOT_VERSION/Godot_v${GODOT_VERSION}_export_templates.tpz"

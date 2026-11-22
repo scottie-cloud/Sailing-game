@@ -158,6 +158,7 @@ var trim_button: Button
 var haul_button: Button
 var ease_button: Button
 var reef_button: Button
+var chart_button: Button
 var pause_button: Button
 var view_button: Button
 var sound_button: Button
@@ -201,7 +202,7 @@ func _process(delta: float) -> void:
 	if _new_game_armed_until > 0.0 and anim_time >= _new_game_armed_until:
 		_new_game_armed_until = 0.0
 		new_game_button.text = "New game"
-	if mode == Mode.SAILING and not paused:
+	if at_helm() and not paused:
 		_sail(delta)
 	camera.position = ship.position
 	_update_hud()
@@ -393,6 +394,38 @@ func target_point() -> Vector2:
 	return World.port_position(destination)
 
 
+## The bearing of the leg of the plan she is on, as laid off on the chart
+## in port. It does not change as she strays: that is what the chart is for.
+func course_to_steer() -> float:
+	return SailingModel.vector_to_bearing(target_point() - leg_start())
+
+
+## Where the leg she is on began: the last mark passed, or the port she left.
+func leg_start() -> Vector2:
+	if next_mark > 0 and next_mark <= plan.size():
+		return plan[next_mark - 1]
+	return World.port_position(current_port)
+
+
+## What the chart says under sail: how far she is off the line, and what
+## the mark bears from where she really is.
+func position_report() -> String:
+	var off := Track.off_line(ship.position, leg_start(), target_point())
+	var off_nm := off.length() / ShipState.PX_PER_NM
+	var to_target := target_point() - ship.position
+	var where := "You are on your course line."
+	if off_nm >= 0.1:
+		where = "You are %.1f nm %s of your course line." % [off_nm, Weather.compass_name(rad_to_deg(SailingModel.vector_to_bearing(off)))]
+	return "%s From here %s bears %03d°, %.1f nm off. The leg was laid off at %03d°." % [where, target_name(),
+		posmod(roundi(rad_to_deg(SailingModel.vector_to_bearing(to_target))), 360), to_target.length() / ShipState.PX_PER_NM,
+		posmod(roundi(rad_to_deg(course_to_steer())), 360)]
+
+
+## At the helm: under sail and not looking at the chart.
+func at_helm() -> bool:
+	return mode == Mode.SAILING and not chart.visible
+
+
 func target_name() -> String:
 	if next_mark < plan.size():
 		return "mark %d" % (next_mark + 1)
@@ -443,14 +476,21 @@ func plan_changed() -> void:
 	_save_game()
 
 
+## In port the chart is for planning. Under sail it only shows where she
+## is against the plan, and the passage stands still while it is open.
 func open_chart() -> void:
 	port_panel.visible = false
 	chart.visible = true
 	chart.refresh()
+	if mode == Mode.SAILING:
+		_show_sailing_controls(false)
 
 
 func close_chart() -> void:
 	chart.visible = false
+	if mode == Mode.SAILING:
+		_show_sailing_controls(true)
+		return
 	port_panel.visible = true
 	_refresh_port_panel()
 
@@ -701,6 +741,8 @@ func is_flapping() -> bool:
 	if mode != Mode.SAILING:
 		return false
 	var twa := ship.true_wind_angle_deg(wind_from)
+	if ship.sail_down:
+		return false
 	if SailingModel.in_no_go(twa):
 		return true
 	return ship.manual_trim and ship.sheet_deg > SailingModel.ideal_sheet_deg(twa) + 15.0
@@ -711,8 +753,15 @@ func _toggle_pause() -> void:
 	pause_button.text = "Resume" if paused else "Pause"
 
 
+## One button steps the sail: full, reefed, lowered, and back to full.
 func _toggle_reef() -> void:
-	ship.reefed = not ship.reefed
+	if ship.sail_down:
+		ship.sail_down = false
+		ship.reefed = false
+	elif ship.reefed:
+		ship.sail_down = true
+	else:
+		ship.reefed = true
 	_show_sailing_controls(mode == Mode.SAILING)
 
 
@@ -780,14 +829,19 @@ func _show_sailing_controls(sailing: bool) -> void:
 	haul_button.visible = sailing and ship.manual_trim
 	ease_button.visible = sailing and ship.manual_trim
 	reef_button.visible = sailing
-	reef_button.text = "Reefed: undo" if ship.reefed else "Reef sail"
+	reef_button.text = "Sail: full"
+	if ship.sail_down:
+		reef_button.text = "Sail: lowered"
+	elif ship.reefed:
+		reef_button.text = "Sail: reefed"
+	chart_button.visible = sailing
 	pause_button.visible = sailing
 	view_button.visible = sailing
 	sound_button.visible = sailing
 	anchor_button.visible = false
 	sound_button.text = "Sound: off" if sound_muted else "Sound: on"
 	view_button.text = "Top" if deck_mode else "Deck"
-	deck_view.visible = sailing and deck_mode
+	deck_view.visible = sailing and deck_mode and not chart.visible
 	pause_button.text = "Resume" if paused else "Pause"
 
 
@@ -806,6 +860,8 @@ func _advance_marks() -> void:
 		if not (rounded or passed):
 			break
 		next_mark += 1
+		_show_notice("By your reckoning mark %d is passed. New course %03d° for %s." % [next_mark,
+			posmod(roundi(rad_to_deg(course_to_steer())), 360), target_name()], 8.0)
 
 
 func _sail(delta: float) -> void:
@@ -949,6 +1005,7 @@ func _set_sail() -> void:
 	contracts_screen.visible = false
 	ship.sheet_deg = SailingModel.ideal_sheet_deg(ship.true_wind_angle_deg(wind_from))
 	ship.reefed = false
+	ship.sail_down = false
 	ship.strain_s = 0.0
 	paused = false
 	announced_squalls = {}
@@ -1202,7 +1259,7 @@ func _show_notice(text: String, seconds: float) -> void:
 
 
 func _current_hint() -> String:
-	if mode != Mode.SAILING:
+	if not at_helm():
 		return ""
 	if paused:
 		return "Paused. Tap Resume to sail on."
@@ -1214,15 +1271,15 @@ func _current_hint() -> String:
 		return "Land ahead! Turn away."
 	if shoal_ahead != "":
 		return "Shoal ahead: the %s is too shallow for her. Turn away, or wait for more tide." % shoal_ahead
-	if _in_no_go():
+	if ship.sail_down and not near_destination():
+		return "Sail lowered: she is losing way. Tap the Sail button to set it again."
+	if _in_no_go() and not ship.sail_down:
 		return "Sails flapping! You can't sail straight into the wind. Steer out of the red zone."
 	if near_destination():
-		return "Coming in to %s. Be under %d kn at the pier: turn into the wind to lose way. Or anchor off." % [
+		return "Coming in to %s. Be under %d kn at the pier: tap Sail until it is lowered and she coasts in. Or anchor off." % [
 			World.port_name(destination), int(Docking.CLEAN_KN)]
 	if passage_seconds < 1200.0:
-		if deck_mode:
-			return "Hold < or > to steer. Bring the gold MARK pointer to the middle of the compass."
-		return "Hold < or > to steer. The gold arrow points to %s." % target_name()
+		return "Hold < or > to steer. Bring the gold COURSE pointer to the middle of the compass. Chart shows where you are."
 	var to_target := SailingModel.vector_to_bearing(target_point() - ship.position)
 	if not SailingModel.can_lay(SailingModel.true_wind_angle_deg(to_target, wind_from)):
 		return "%s is upwind. Zig-zag towards it, keeping just outside the red zone." % target_name().capitalize()
@@ -1235,7 +1292,7 @@ func _format_time(seconds: float) -> String:
 
 
 func _update_hud() -> void:
-	var sailing := mode == Mode.SAILING
+	var sailing := at_helm()
 	status_label.visible = sailing
 	passage_label.visible = sailing
 	var hint := _current_hint()

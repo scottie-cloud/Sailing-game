@@ -198,9 +198,29 @@ func _run() -> void:
 	await _frames(20)
 	check(game.passage_seconds > paused_at, "the passage carries on after resuming")
 	game._toggle_reef()
-	check(game.ship.reefed and game.reef_button.text.contains("Reefed"), "the sail can be reefed")
+	check(game.ship.reefed and not game.ship.sail_down and game.reef_button.text.contains("reefed"), "the sail can be reefed")
 	game._toggle_reef()
-	check(not game.ship.reefed, "the reef can be shaken out")
+	check(game.ship.sail_down and game.reef_button.text.contains("lowered"), "the sail can be lowered")
+	game.ship.speed_kn = 5.0
+	await _frames(30)
+	check(game.ship.speed_kn < 5.0, "with the sail lowered she loses way")
+	game._toggle_reef()
+	check(not game.ship.reefed and not game.ship.sail_down and game.reef_button.text.contains("full"), "and set again in full")
+
+	# The chart under sail: the passage stands still and the plan cannot be changed.
+	check(game.chart_button.visible, "the chart button shows under sail")
+	var marks_before: int = game.plan.size()
+	game.open_chart()
+	var charted_at: float = game.passage_seconds
+	await _frames(10)
+	game.chart.add_mark(game.ship.position)
+	check(game.chart.visible and not game.at_helm() and game.passage_seconds == charted_at, "time stands still while the chart is open")
+	check(game.plan.size() == marks_before, "the plan cannot be changed under sail")
+	check(game.position_report().contains("bears") and not game.left_button.visible, "the chart says where she is against the plan")
+	game.close_chart()
+	check(game.at_helm() and game.left_button.visible and not game.port_panel.visible, "closing the chart goes back to the helm")
+	var course: float = game.course_to_steer()
+	check(course >= 0.0 and course <= TAU, "there is a course to steer by compass")
 	check(game.tide_text().contains("Tide"), "the state of the tide is reported")
 	check(game.squalls_at(0.0).size() <= 2, "the day's squalls can be listed")
 	var clock: float = game.clock_hours

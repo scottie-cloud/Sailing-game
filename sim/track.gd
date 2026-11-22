@@ -48,3 +48,9 @@ static func to_marks(points: Array[Vector2], max_marks: int) -> Array[Vector2]:
 	for i in range(1, simplified.size() - 1):
 		marks.append(simplified[i])
 	return marks
+
+
+## From the nearest point of the line a-b to the point: which way, and how
+## far, she lies off the line.
+static func off_line(point: Vector2, a: Vector2, b: Vector2) -> Vector2:
+	return point - Geometry2D.get_closest_point_to_segment(point, a, b)

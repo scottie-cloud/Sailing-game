@@ -1,5 +1,6 @@
 extends Control
-## The chart used in port to plan a route. Tap the water to add marks; each
+## The chart. Opened under sail it shows the course sailed and where she is
+## against the plan, and changes nothing. In port it is used to plan a route. Tap the water to add marks; each
 ## leg is coloured by how well the boat can sail it and labelled with an
 ## estimated speed and time.
 
@@ -23,6 +24,9 @@ const LAND_LEG := Color("ff9f1c")
 var game
 var summary: Label
 var record_button: Button
+## The buttons that change the plan: hidden when the chart is opened under sail.
+var planning_buttons: Array[Button] = []
+var done_button: Button
 
 
 func setup(game_ref) -> void:
@@ -46,10 +50,11 @@ func setup(game_ref) -> void:
 	summary.add_theme_font_size_override("font_size", 18)
 	bar.add_child(summary)
 	record_button = _button("Record", use_record)
-	bar.add_child(record_button)
-	bar.add_child(_button("Undo", undo))
-	bar.add_child(_button("Clear", clear))
-	bar.add_child(_button("Done", _done))
+	planning_buttons = [record_button, _button("Undo", undo), _button("Clear", clear)]
+	for button in planning_buttons:
+		bar.add_child(button)
+	done_button = _button("Done", _done)
+	bar.add_child(done_button)
 
 	# Waiting in port lets the tide turn before you leave.
 	var wait := _button("Wait 1h", _wait)
@@ -59,6 +64,7 @@ func setup(game_ref) -> void:
 	wait.offset_top = 12
 	wait.offset_bottom = 76
 	add_child(wait)
+	planning_buttons.append(wait)
 
 
 func _button(text: String, action: Callable) -> Button:
@@ -70,7 +76,11 @@ func _button(text: String, action: Callable) -> Button:
 
 
 func refresh() -> void:
-	summary.text = game.plan_summary(true)
+	var sailing: bool = game.is_sailing()
+	summary.text = game.position_report() if sailing else game.plan_summary(true)
+	for button in planning_buttons:
+		button.visible = not sailing
+	done_button.text = "Helm" if sailing else "Done"
 	record_button.disabled = game.record_track().is_empty()
 	queue_redraw()
 
@@ -128,7 +138,8 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func add_mark(world_point: Vector2) -> void:
-	if game.plan.size() >= game.MAX_MARKS:
+	# The plan is made in port; under sail the chart is only for looking.
+	if game.is_sailing() or game.plan.size() >= game.MAX_MARKS:
 		return
 	# A mark can go anywhere but on land she knows to be land.
 	if not World.in_bounds(world_point) or (game.survey.is_known(world_point) and World.is_land(world_point)):
@@ -230,9 +241,11 @@ func _draw() -> void:
 
 	# Forecast squalls: each one's track across the chart, with its place marked
 	# hour by hour for the next eight hours. Only what falls on the chart is drawn.
+	var sailing: bool = game.is_sailing()
+	var hours_out: float = game.passage_seconds / 3600.0 if sailing else 0.0
 	for hour in range(0, 9):
-		var squalls: Array[Dictionary] = game.squalls_at(float(hour))
-		var next_hour: Array[Dictionary] = game.squalls_at(float(hour) + 1.0)
+		var squalls: Array[Dictionary] = game.squalls_at(hours_out + float(hour))
+		var next_hour: Array[Dictionary] = game.squalls_at(hours_out + float(hour) + 1.0)
 		for i in squalls.size():
 			var centre: Vector2 = squalls[i]["centre"]
 			var onward: Vector2 = next_hour[i]["centre"]
@@ -254,7 +267,8 @@ func _draw() -> void:
 	for i in 9:
 		var spread := deg_to_rad(lerpf(-SailingModel.NO_GO_DEG, SailingModel.NO_GO_DEG, i / 8.0))
 		wedge.append(last_start + SailingModel.bearing_to_vector(game.wind_from + spread) * 90.0)
-	draw_colored_polygon(wedge, Color(0.9, 0.15, 0.1, 0.3))
+	if not sailing:
+		draw_colored_polygon(wedge, Color(0.9, 0.15, 0.1, 0.3))
 
 	for leg in legs:
 		var a := to_screen(leg["from"])
@@ -295,4 +309,22 @@ func _draw() -> void:
 		draw_string(font, p + Vector2(-109, -15), title, HORIZONTAL_ALIGNMENT_CENTER, 220, 18, Color(0, 0, 0, 0.7))
 		draw_string(font, p + Vector2(-110, -16), title, HORIZONTAL_ALIGNMENT_CENTER, 220, 18, Color.WHITE)
 
+	if sailing:
+		_draw_position()
 	draw_rect(map_rect, Color(1, 1, 1, 0.6), false, 2.0)
+
+
+## Under sail: the course she has sailed so far and where she is now.
+func _draw_position() -> void:
+	var sailed: Array[Vector2] = game.track
+	var line := PackedVector2Array()
+	for point in sailed:
+		line.append(to_screen(point))
+	var ship_at := to_screen(game.ship.position)
+	line.append(ship_at)
+	if line.size() >= 2:
+		draw_polyline(line, Color.WHITE, 2.5)
+	var bow: Vector2 = SailingModel.bearing_to_vector(game.ship.heading)
+	draw_line(ship_at, ship_at + bow * 22.0, Color.WHITE, 3.0)
+	draw_circle(ship_at, 8.0, Color.WHITE)
+	draw_circle(ship_at, 5.5, Color("ff5a4a"))

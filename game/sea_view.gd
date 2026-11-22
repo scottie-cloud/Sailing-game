@@ -167,14 +167,15 @@ func _draw_wake() -> void:
 		draw_line(wake[i - 1], wake[i], Color(0.8, 0.95, 1.0, alpha * 0.5), 6.0)
 
 
-## Shoals show as paler, sandy water. One too shallow for her at this tide is tinted red.
+## Shoals she has found show as paler, sandy water. One too shallow for her
+## at this tide is tinted red. A shoal not yet on her chart looks like any other water.
 func _draw_shoals(view: Rect2) -> void:
 	var font := ThemeDB.fallback_font
 	var draws: float = game.draught()
 	var tide: float = game.tide_height()
 	for shoal: Dictionary in World.shoals():
 		var bounds: Rect2 = shoal["bounds"]
-		if not bounds.intersects(view):
+		if not bounds.intersects(view) or not game.known_shoals.has(shoal["name"]):
 			continue
 		var depth := Shoals.depth_m(shoal["depth"], tide)
 		var tint := Palette.SHOAL if Shoals.can_float(depth, draws) else Palette.SHOAL_TOO_SHALLOW

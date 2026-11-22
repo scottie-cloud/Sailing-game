@@ -6,6 +6,7 @@ const SailingModel = preload("res://sim/sailing_model.gd")
 const Weather = preload("res://sim/weather.gd")
 const World = preload("res://game/world.gd")
 const Palette = preload("res://game/palette.gd")
+const Survey = preload("res://sim/survey.gd")
 const GOLD := Palette.GOLD
 const LAND_FILL := Palette.LAND_FILL
 
@@ -43,11 +44,16 @@ func _draw_minimap() -> void:
 	var origin := Vector2(size.x - map_size.x - 20.0, 56.0)
 	draw_rect(Rect2(origin, map_size), Color(0.05, 0.2, 0.32, 0.85))
 	draw_texture_rect(World.minimap_texture(), Rect2(origin, map_size), false)
+	# What she has not surveyed is blank.
+	var fog: ImageTexture = game.fog_texture
+	draw_texture_rect(fog, Rect2(origin, Vector2(fog.get_width(), fog.get_height()) * Survey.CELL * map_scale), false)
 	var route: Array[Vector2] = game.route_points(World.port_position(game.current_port), 0)
 	if route.size() > 2:
 		for i in range(1, route.size()):
 			draw_line(origin + route[i - 1] * map_scale, origin + route[i] * map_scale, Color(1, 1, 1, 0.6), 1.5)
 	for port: String in World.PORTS:
+		if not game.knows_port(port):
+			continue
 		var colour := GOLD if port == game.destination else Color.WHITE
 		draw_circle(origin + World.port_position(port) * map_scale, 5.0, colour)
 	for squall: Dictionary in game.squalls_at(game.passage_seconds / 3600.0):

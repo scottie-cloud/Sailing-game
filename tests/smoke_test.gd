@@ -57,8 +57,24 @@ func _run() -> void:
 	game.chart._gui_input(tap)
 	check(game.plan.size() == 1, "tapping the water adds a mark")
 	check(game.plan[0].distance_to(MARK) < 5.0, "the mark lands where the chart was tapped")
+	# Her chart starts with the home waters only.
+	check(game.knows_port("melbourne") and game.known_destinations().size() == 2, "she starts knowing of two ports besides her own")
+	check(not game.knows_port("queenscliff") and not game.knows_port("barwon"), "and has not heard of the ports at the Heads")
+	check(game.survey.is_known(World.port_position("melbourne")) and not game.survey.is_known(World.RIP_CENTRE), "the home waters are charted and the Heads are not")
+	check(game.known_shoals.is_empty() and game.survey.known_fraction() < 0.2, "most of the bay is blank, with no shoals marked")
+	var charted_land := Vector2.INF
+	for north in range(300, 2000, 100):
+		var spot: Vector2 = World.port_position("melbourne") + Vector2(0, -north)
+		if World.is_land(spot) and game.survey.is_known(spot):
+			charted_land = spot
+			break
+	check(charted_land != Vector2.INF, "there is charted land near the home port")
+	game.chart.add_mark(charted_land)
+	check(game.plan.size() == 1, "a mark cannot be placed on land she knows to be land")
 	game.chart.add_mark(Vector2(2000, 2000))
-	check(game.plan.size() == 1, "a mark cannot be placed on land")
+	check(game.plan.size() == 2, "but a mark can go on unsurveyed ground, land or not")
+	game.chart.undo()
+	check(game.plan_summary(true).contains("not yet on your chart"), "the plan says when it runs through uncharted waters")
 	game.chart.add_mark(Vector2(10000, 9000))
 	game.chart.undo()
 	check(game.plan.size() == 1, "undo removes the last mark")
@@ -115,11 +131,10 @@ func _run() -> void:
 	game.follow_track(course)
 	check(game.plan.size() == 2 and game.plan[0].distance_to(Vector2(6000, 9000)) < 5.0, "following a course plans its turning points")
 
-	# The pilot's course goes on the chart as marks, and the destination can be changed.
-	game.open_chart()
-	game.chart.use_pilot()
-	check(game.chart.summary.text.contains("Route plan"), "the pilot course gives a plan")
-	game.close_chart()
+	# What she has learned: the passage charted the water she crossed, and the port told her of another.
+	check(game.survey.is_known(MARK) and game.survey.is_known(World.port_position(destination)), "the waters she sailed through are on her chart")
+	check(game.knows_port("queenscliff") and game.port_report.text.contains("you hear of Queenscliff"), "in port she hears of another port")
+	check(game.fog_texture != null and game.fog_texture.get_width() == game.survey.wide, "the blank parts of the chart have a picture")
 	var first_choice: String = game.destination
 	game._cycle_destination()
 	check(game.destination != first_choice and game.destination != game.current_port, "the destination can be changed")
@@ -195,6 +210,7 @@ func _run() -> void:
 	game.ship.position = sand
 	await _frames(3)
 	check(game.ship.position.distance_to(sand) < 200.0, "the cutter crosses the sand")
+	check(game.known_shoals.has("West Sand"), "and her lead puts the sand on her chart")
 	var own_ship: String = game.ship_id
 	game.ship_id = "schooner"
 	var before_grounding: float = game.passage_seconds

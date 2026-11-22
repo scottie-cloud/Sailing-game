@@ -15,6 +15,7 @@ const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
 const SoundMix = preload("res://sim/sound_mix.gd")
 const Shoals = preload("res://sim/shoals.gd")
+const Survey = preload("res://sim/survey.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -55,6 +56,7 @@ func _init() -> void:
 	test_sound_mix()
 	test_chart()
 	test_shallow_water()
+	test_survey()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -696,3 +698,42 @@ func test_shallow_water() -> void:
 	check(Shoals.passage(bar["depth"], schooner, Tide.RANGE_M) == Shoals.Passage.NEVER, "a full one cannot: she must lighten her load")
 	check(Shoals.passage(bar["depth"], Shipyard.draught_m("schooner", 0.5), Tide.RANGE_M) == Shoals.Passage.ON_THE_TIDE, "half loaded, she can cross near high water")
 	check(World.pilot_route("melbourne", "geelong", schooner) == World.pilot_route("melbourne", "geelong", 0.0), "with no safe way, the pilot gives the ordinary course")
+
+
+func test_survey() -> void:
+	var survey := Survey.new(Vector2(4000, 2000))
+	check(survey.wide == 10 and survey.tall == 5 and near(survey.known_fraction(), 0.0), "a new chart is blank")
+	check(not survey.is_known(Vector2(600, 600)), "nothing is charted to begin with")
+	var gained := survey.reveal(Vector2(600, 600), 450.0)
+	check(gained > 0 and survey.is_known(Vector2(600, 600)), "sailing somewhere charts it")
+	check(survey.is_known(Vector2(250, 600)) and not survey.is_known(Vector2(1700, 600)), "only what lies within sight is charted")
+	check(survey.reveal(Vector2(600, 600), 450.0) == 0, "charting the same water twice adds nothing")
+	check(not survey.is_known(Vector2(-10, 50)) and not survey.is_known(Vector2(5000, 50)), "off the chart is never known")
+	check(survey.reveal(Vector2(-300, -300), 450.0) == 0 or survey.is_known(Vector2(100, 100)), "charting near the edge does no harm")
+	check(survey.segment_known(Vector2(450, 600), Vector2(750, 600)) and not survey.segment_known(Vector2(600, 600), Vector2(3000, 600)), "a line is charted only if all of it is")
+	check(survey.known_fraction() > 0.0 and survey.known_fraction() < 0.5, "the charted share grows")
+
+	var saved := survey.to_text()
+	var loaded := Survey.new(Vector2(4000, 2000))
+	check(loaded.from_text(saved) and loaded.is_known(Vector2(600, 600)) and not loaded.is_known(Vector2(1700, 600)), "a chart survives being saved and loaded")
+	var other_size := Survey.new(Vector2(8000, 2000))
+	check(not other_size.from_text(saved) and near(other_size.known_fraction(), 0.0), "a saved chart of the wrong size is refused")
+	check(not loaded.from_text("") and loaded.is_known(Vector2(600, 600)), "an empty save leaves the chart alone")
+	survey.reveal(Vector2(2000, 1000), 10000.0)
+	check(near(survey.known_fraction(), 1.0), "the whole chart can be surveyed")
+
+	# Word of mouth: every port can be heard of, starting from Melbourne.
+	var heard := {"melbourne": true}
+	var frontier: Array[String] = ["melbourne"]
+	var hearsay_ok := true
+	while not frontier.is_empty():
+		var port: String = frontier.pop_back()
+		var told: Array = World.PORTS[port]["tells_of"]
+		hearsay_ok = hearsay_ok and World.PORTS[port]["word"] != "" and not told.has(port)
+		for other: String in told:
+			hearsay_ok = hearsay_ok and World.PORTS.has(other)
+			if not heard.has(other):
+				heard[other] = true
+				frontier.append(other)
+	check(hearsay_ok and heard.size() == World.PORTS.size(), "every port can be heard of by word of mouth from Melbourne")
+	check(World.PORTS["melbourne"]["tells_of"].size() == 2, "the game starts with two ports to sail for")

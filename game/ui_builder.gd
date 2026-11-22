@@ -8,6 +8,7 @@ const DeckView = preload("res://game/deck_view.gd")
 const Chart = preload("res://game/chart.gd")
 const LogScreen = preload("res://game/log_screen.gd")
 const ListScreen = preload("res://game/list_screen.gd")
+const BuildInfo = preload("res://game/build_info.gd")
 
 const BUTTON_HEIGHT := 56.0
 const SMALL_TEXT := 20
@@ -210,6 +211,15 @@ static func _build_port_screen(game, root: Control) -> void:
 	departure.add_child(sail_button)
 	game.sail_button = sail_button
 	box.add_child(departure)
+
+	# Which build is running, so it is easy to tell whether the latest has loaded.
+	var build_label := Label.new()
+	build_label.text = "Build %s" % BuildInfo.BUILD
+	build_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	build_label.add_theme_font_size_override("font_size", 14)
+	build_label.modulate = Color(1, 1, 1, 0.6)
+	box.add_child(build_label)
+	game.build_label = build_label
 
 
 ## The screens that cover everything: chart, log, shipyard and charters.

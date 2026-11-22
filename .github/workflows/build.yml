@@ -41,6 +41,11 @@ jobs:
           mv "$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}_linux.x86_64" "$RUNNER_TEMP/godot/godot"
           echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
 
+      - name: Stamp the build number
+        run: |
+          printf 'extends RefCounted\n## Written by the Build workflow.\n\nconst BUILD := "%s"\n' "$GITHUB_RUN_NUMBER" > game/build_info.gd
+          cat game/build_info.gd
+
       - name: Import project
         run: godot --headless --path . --import
 

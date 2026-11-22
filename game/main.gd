@@ -163,6 +163,7 @@ var view_button: Button
 var sound_button: Button
 var anchor_button: Button
 var new_game_button: Button
+var build_label: Label
 ## While this is ahead of the clock, a second tap on New game erases the save.
 var _new_game_armed_until := 0.0
 var sound: Sound

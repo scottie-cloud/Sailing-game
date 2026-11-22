@@ -717,7 +717,8 @@ func _sail(delta: float) -> void:
 			_show_notice("Ran aground! Lost 30 minutes getting her off. Steer back to open water.", 6.0)
 	elif not Shoals.can_float(World.depth_at(ship.position, tide), draws):
 		var under: Dictionary = World.shoal_at(ship.position)
-		ship.position = last_safe_position
+		ship.position = _refloat_position(draws, tide)
+		last_safe_position = ship.position
 		ship.speed_kn = 0.0
 		ship.heading = wrapf(ship.heading + PI, 0.0, TAU)
 		passage_seconds += AGROUND_PENALTY_S
@@ -735,6 +736,18 @@ func _sail(delta: float) -> void:
 	_advance_marks()
 	if ship.position.distance_to(dest_pos) < DOCK_RADIUS:
 		_arrive()
+
+
+## Where to put her after grounding on a shoal: the last place she floated,
+## or, if the tide has since left that too shallow, the latest point of her
+## track with water enough.
+func _refloat_position(draws: float, tide: float) -> Vector2:
+	if Shoals.can_float(World.depth_at(last_safe_position, tide), draws):
+		return last_safe_position
+	for i in range(track.size() - 1, -1, -1):
+		if Shoals.can_float(World.depth_at(track[i], tide), draws):
+			return track[i]
+	return World.port_position(current_port)
 
 
 func _set_sail() -> void:

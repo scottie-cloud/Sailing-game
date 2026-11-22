@@ -15,6 +15,7 @@ const SHALLOW_OUTER := Palette.SHALLOW_OUTER
 const SHALLOW_INNER := Palette.SHALLOW_INNER
 const GOLD := Palette.GOLD
 const RECORD := Palette.RECORD
+var _land_colours := PackedColorArray([Palette.LAND_FILL, Palette.LAND_FILL, Palette.LAND_FILL])
 
 var game
 
@@ -87,7 +88,8 @@ func _draw() -> void:
 	# Only the land near the ship is drawn.
 	var triangles := World.triangles()
 	for i: int in World.triangles_near(view):
-		draw_colored_polygon(PackedVector2Array([triangles[i], triangles[i + 1], triangles[i + 2]]), LAND_FILL)
+		# Drawn as plain triangles: some are slivers too thin for the polygon routine.
+		draw_primitive(PackedVector2Array([triangles[i], triangles[i + 1], triangles[i + 2]]), _land_colours, PackedVector2Array())
 	_draw_scrub(view)
 	for index: int in World.edges_near(view.grow(16.0)):
 		var from := World.edge_from(index)

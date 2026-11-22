@@ -153,7 +153,9 @@ func _draw() -> void:
 
 	var triangles := World.triangles()
 	for i in range(0, triangles.size(), 3):
-		draw_colored_polygon(PackedVector2Array([to_screen(triangles[i]), to_screen(triangles[i + 1]), to_screen(triangles[i + 2])]), LAND_FILL)
+		# Drawn as plain triangles: at this scale many are too thin for the polygon routine.
+		draw_primitive(PackedVector2Array([to_screen(triangles[i]), to_screen(triangles[i + 1]), to_screen(triangles[i + 2])]),
+			PackedColorArray([LAND_FILL, LAND_FILL, LAND_FILL]), PackedVector2Array())
 
 	# Shoals, coloured by whether this ship, loaded as she is, can cross them:
 	# sand at any tide, amber only with enough tide, red not at all.

@@ -36,6 +36,7 @@ static func save(game) -> void:
 		"plans": saved_plans,
 		"manual_trim": game.ship.manual_trim,
 		"deck_mode": game.deck_mode,
+		"sound_muted": game.sound_muted,
 		"clock_hours": game.clock_hours,
 		"damaged": game.ship.damaged,
 		"record_tracks": saved_records,
@@ -95,6 +96,7 @@ static func load_into(game) -> void:
 	game.current_port = port if World.PORTS.has(port) else "melbourne"
 	game.ship.manual_trim = bool(data.get("manual_trim", false))
 	game.deck_mode = bool(data.get("deck_mode", false))
+	game.sound_muted = bool(data.get("sound_muted", false))
 	game.clock_hours = float(data.get("clock_hours", 0.0))
 	game.ship.damaged = bool(data.get("damaged", false))
 	var times: Variant = data.get("best_times", {})

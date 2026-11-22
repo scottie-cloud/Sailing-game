@@ -27,6 +27,9 @@ Built with [Godot 4.3](https://godotengine.org/download).
   shows an estimated speed and time, and turns red if it points too close to
   the wind. Under sail the plan is drawn on the water and the game tracks
   whether you are ahead of or behind it.
+- Sound: wind that rises with the breeze, water along the hull that grows
+  with speed, a sail that shakes when it is not drawing, rain in a squall and
+  a bell on arrival. A "Sound" button under sail switches it off.
 - A Pause button under sail.
 - A trim bar above the speed panel: a green band shows where the sail sets
   well and slides as the heading or wind changes; keep the white marker in it.
@@ -96,6 +99,8 @@ godot --headless --path . -s tests/smoke_test.gd
 | How fast time runs | `sim/time_compression.gd` |
 | Where buttons and panels sit | `game/ui_builder.gd` |
 | Colours | `game/palette.gd` |
+| How loud each sound is, and when | `sim/sound_mix.gd` |
+| The sounds themselves | `tools/make_sounds.py`, which writes `audio/` |
 | The coastline | `tools/build_bay.py`, which writes `game/bay_data.gd` |
 
 Each file in `data/` starts with a note on what its fields mean. After any

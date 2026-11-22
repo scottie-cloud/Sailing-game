@@ -6,7 +6,9 @@ const Shipyard = preload("res://sim/shipyard.gd")
 const Contracts = preload("res://sim/contracts.gd")
 const World = preload("res://game/world.gd")
 
-const SAVE_PATH := "user://save.json"
+## The number goes up when an old save should no longer be picked up: a save
+## under an earlier name is left where it is and ignored.
+const SAVE_PATH := "user://save_v2.json"
 
 
 ## Delete the save file, if there is one.

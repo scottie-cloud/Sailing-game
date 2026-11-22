@@ -35,6 +35,7 @@ func _run() -> void:
 	root.add_child(game)
 	await _frames(5)
 	check(not game.is_sailing(), "the game starts in port")
+	check(game.build_label.text.begins_with("Build ") and game.build_label.text.length() > 6, "the port screen shows which build this is")
 
 	var origin: String = game.current_port
 	var good_id: String = Trade.goods_sold_at(origin)[0]

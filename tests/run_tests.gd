@@ -13,6 +13,7 @@ const Tide = preload("res://sim/tide.gd")
 const Shipyard = preload("res://sim/shipyard.gd")
 const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
+const SoundMix = preload("res://sim/sound_mix.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -50,6 +51,7 @@ func _init() -> void:
 	test_shipyard()
 	test_market_and_charters()
 	test_data()
+	test_sound_mix()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -527,3 +529,26 @@ func test_data() -> void:
 		last_hold = ship["hold"]
 	check(ships_ok, "every ship is fully described and each carries more than the last")
 	check(Shipyard.SHIPS[Shipyard.SHIP_ORDER[0]]["price"] == 0, "the first ship is free: it is the one you start with")
+
+
+func test_sound_mix() -> void:
+	var breeze := SoundMix.levels(true, false, 10.0, 4.0, false, 0.0)
+	var gale := SoundMix.levels(true, false, 26.0, 4.0, false, 0.0)
+	check(gale["wind"] > breeze["wind"] and breeze["wind"] > 0.0, "more wind is louder")
+	var slow := SoundMix.levels(true, false, 12.0, 1.0, false, 0.0)
+	var fast := SoundMix.levels(true, false, 12.0, 7.0, false, 0.0)
+	check(fast["water"] > slow["water"] * 3.0, "water along the hull grows with speed")
+	check(near(SoundMix.levels(true, false, 12.0, 0.0, false, 0.0)["water"], 0.0), "a stopped ship makes no wash")
+	check(near(breeze["flap"], 0.0) and SoundMix.levels(true, false, 10.0, 1.0, true, 0.0)["flap"] > 0.2, "a sail only flaps when it is not drawing")
+	check(near(breeze["rain"], 0.0) and SoundMix.levels(true, false, 20.0, 4.0, false, 1.0)["rain"] > 0.5, "rain is heard in a squall")
+	var in_port := SoundMix.levels(false, false, 20.0, 5.0, true, 1.0)
+	check(near(in_port["wind"], SoundMix.PORT_WIND) and near(in_port["water"], 0.0) and near(in_port["flap"], 0.0) and near(in_port["rain"], 0.0), "in port there is only a breeze")
+	var paused := SoundMix.levels(true, true, 20.0, 5.0, true, 1.0)
+	var silent := true
+	var in_range := true
+	for sound: String in paused:
+		silent = silent and near(paused[sound], 0.0)
+		in_range = in_range and gale[sound] >= 0.0 and gale[sound] <= 1.0
+	check(silent, "a paused game is silent")
+	check(in_range, "levels stay between 0 and 1")
+	check(near(SoundMix.to_db(0.0), SoundMix.SILENT_DB) and near(SoundMix.to_db(1.0), 0.0) and SoundMix.to_db(0.5) < 0.0, "levels convert to decibels")

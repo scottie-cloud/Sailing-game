@@ -151,6 +151,20 @@ func _run() -> void:
 	check(game.clock_text().begins_with("Day "), "the time of day is shown")
 	check(game.daylight() >= 0.0 and game.daylight() <= 1.0, "daylight is a fraction")
 
+	# Sound: the loops are running, follow the ship, and can be switched off.
+	var loops_ready := true
+	for loop: String in game.sound.LOOPS:
+		loops_ready = loops_ready and AudioServer.get_bus_index(game.sound.bus_name(loop)) >= 0
+	check(loops_ready and game.sound.get_child_count() == game.sound.LOOPS.size() + 1, "each sound loop and the bell is set up")
+	await _frames(30)
+	check(game.sound.level("wind") > 0.0, "the wind is heard under sail")
+	check(game.sound_button.visible and game.sound_button.text == "Sound: on", "the sound button shows under sail")
+	game._toggle_sound()
+	check(game.sound_muted and AudioServer.is_bus_mute(0) and game.sound_button.text == "Sound: off", "sound can be switched off")
+	game._toggle_sound()
+	check(not AudioServer.is_bus_mute(0), "and back on")
+	check(not game.is_flapping() or game.sound.level("flap") >= 0.0, "a flapping sail can be asked about")
+
 	# Pause stops the clock; reefing and the tide are available.
 	check(game.pause_button.visible and game.reef_button.visible, "pause and reef buttons show under sail")
 	game._toggle_pause()

@@ -24,6 +24,7 @@ const SeaView = preload("res://game/sea_view.gd")
 const SaveGame = preload("res://game/save_game.gd")
 const Ui = preload("res://game/ui_builder.gd")
 const Palette = preload("res://game/palette.gd")
+const Sound = preload("res://game/sound.gd")
 
 ## At 1x, one real second is one game minute.
 const GAME_SECONDS_PER_REAL_SECOND := 60.0
@@ -131,9 +132,12 @@ var ease_button: Button
 var reef_button: Button
 var pause_button: Button
 var view_button: Button
+var sound_button: Button
+var sound: Sound
 var deck_view: DeckView
 ## True when the player has chosen the view from the deck.
 var deck_mode := false
+var sound_muted := false
 ## Recent positions, oldest first, for drawing the wake.
 var wake: Array[Vector2] = []
 
@@ -146,6 +150,10 @@ func _ready() -> void:
 	sea_view.game = self
 	add_child(sea_view)
 	Ui.build(self)
+	sound = Sound.new()
+	add_child(sound)
+	sound.setup(self)
+	sound.set_muted(sound_muted)
 	_enter_port(current_port, "Welcome aboard. Buy cargo here, choose where to take it and sell it there.\nFresh cargo pays more the faster you arrive.")
 
 
@@ -491,6 +499,23 @@ func _toggle_view() -> void:
 	_save_game()
 
 
+func _toggle_sound() -> void:
+	sound_muted = not sound_muted
+	sound.set_muted(sound_muted)
+	_show_sailing_controls(mode == Mode.SAILING)
+	_save_game()
+
+
+## True when a sail is shaking instead of drawing: head to wind, or eased too far.
+func is_flapping() -> bool:
+	if mode != Mode.SAILING:
+		return false
+	var twa := ship.true_wind_angle_deg(wind_from)
+	if SailingModel.in_no_go(twa):
+		return true
+	return ship.manual_trim and ship.sheet_deg > SailingModel.ideal_sheet_deg(twa) + 15.0
+
+
 func _toggle_pause() -> void:
 	paused = not paused
 	pause_button.text = "Resume" if paused else "Pause"
@@ -561,6 +586,8 @@ func _show_sailing_controls(sailing: bool) -> void:
 	reef_button.text = "Reefed: undo" if ship.reefed else "Reef sail"
 	pause_button.visible = sailing
 	view_button.visible = sailing
+	sound_button.visible = sailing
+	sound_button.text = "Sound: off" if sound_muted else "Sound: on"
 	view_button.text = "Top" if deck_mode else "Deck"
 	deck_view.visible = sailing and deck_mode
 	pause_button.text = "Resume" if paused else "Pause"
@@ -750,6 +777,7 @@ func _arrive() -> void:
 			lines.append("Charter missed: %s. No bonus this time." % contract["title"])
 		active_contract = ""
 	money += total
+	sound.ring_bell()
 	if ship.damaged:
 		var repair := mini(REPAIR_COST, money)
 		money -= repair

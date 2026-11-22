@@ -598,7 +598,7 @@ func test_chart() -> void:
 	# The detail a chart should show.
 	check(World.is_land(World.lonlat_to_px(144.765, -38.272)) or World.distance_to_land(World.lonlat_to_px(144.765, -38.272)) < 400.0, "the Mud Islands are on the chart")
 	check(World.land().size() >= 2, "the chart has islands as well as the mainland")
-	check(not World.is_land(World.lonlat_to_px(144.655, -38.228)), "Swan Bay is water")
+	check(not World.is_land(World.lonlat_to_px(144.671, -38.234)), "Swan Bay is water")
 
 	var places_ok := true
 	for place: Dictionary in World.PLACES:

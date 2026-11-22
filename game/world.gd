@@ -18,7 +18,7 @@ const PORT_CLEARANCE := 260.0
 ## The middle of the Rip, the narrow entrance to the bay, and the direction
 ## the flood tide runs through it.
 const RIP_CENTRE := Vector2(6350, 12470)
-const FLOOD_BEARING_DEG := 30.0
+const FLOOD_BEARING_DEG := 65.0
 
 ## The prevailing breeze: south-westerly.
 const WIND_FROM_DEG := 225.0
@@ -181,11 +181,18 @@ static func _bucket_of(p: Vector2) -> Vector2i:
 	return Vector2i(int(floor(p.x / BUCKET)), int(floor(p.y / BUCKET)))
 
 
+static func _on_chart_edge(p: Vector2) -> bool:
+	return p.x <= 0.5 or p.y <= 0.5 or p.x >= SIZE.x - 0.5 or p.y >= SIZE.y - 0.5
+
+
 static func _index_edges() -> void:
 	for polygon in land():
 		for i in polygon.size():
 			var a := polygon[i]
 			var b := polygon[(i + 1) % polygon.size()]
+			# Where the land runs off the chart there is no shore to draw or measure to.
+			if _on_chart_edge(a) and _on_chart_edge(b):
+				continue
 			var key := _bucket_of((a + b) / 2.0)
 			if not _edge_buckets.has(key):
 				_edge_buckets[key] = []

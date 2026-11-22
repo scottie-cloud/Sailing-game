@@ -16,7 +16,7 @@ const PLACES := [
 	{"name": "Port Phillip", "lon": 144.87, "lat": -38.08, "kind": "water", "rank": 1},
 	{"name": "Corio Bay", "lon": 144.42, "lat": -38.115, "kind": "water", "rank": 1},
 	{"name": "Hobsons Bay", "lon": 144.935, "lat": -37.885, "kind": "water", "rank": 1},
-	{"name": "Swan Bay", "lon": 144.655, "lat": -38.228, "kind": "water", "rank": 2},
+	{"name": "Swan Bay", "lon": 144.671, "lat": -38.234, "kind": "water", "rank": 2},
 	{"name": "The Rip", "lon": 144.632, "lat": -38.302, "kind": "water", "rank": 1},
 	{"name": "Bass Strait", "lon": 144.50, "lat": -38.37, "kind": "water", "rank": 1},
 	{"name": "Capel Sound", "lon": 144.87, "lat": -38.335, "kind": "water", "rank": 2},

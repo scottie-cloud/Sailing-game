@@ -9,6 +9,8 @@ const SIZE: Vector2 = Bay.SIZE
 
 const PortData = preload("res://data/ports.gd")
 const Features = preload("res://data/chart_features.gd")
+const ShoalData = preload("res://data/shoals.gd")
+const Shoals = preload("res://sim/shoals.gd")
 const PLACES: Array = Features.PLACES
 const LIGHTS: Array = Features.LIGHTS
 const PORTS: Dictionary = PortData.PORTS
@@ -31,8 +33,10 @@ const PILOT_CLEARANCE := 250.0
 
 static var _rings: Array[PackedVector2Array] = []
 static var _triangles := PackedVector2Array()
-static var _grid: AStarGrid2D
+## Pilot grids and routes, one set for each draught asked for.
+static var _grids := {}
 static var _routes := {}
+static var _shoals: Array[Dictionary] = []
 static var _port_positions := {}
 
 ## Size (px) of the squares the coastline and land triangles are sorted into,
@@ -311,35 +315,97 @@ static func segment_crosses_land(a: Vector2, b: Vector2, step: float = 40.0) -> 
 	return false
 
 
+# --- Shallow water -----------------------------------------------------------
+
+## The shoals from data/shoals.gd, each with its outline in chart pixels
+## ("polygon"), the box around it ("bounds") and a point to label it ("centre").
+static func shoals() -> Array[Dictionary]:
+	if _shoals.is_empty():
+		for entry: Dictionary in ShoalData.SHOALS:
+			var polygon := PackedVector2Array()
+			var total := Vector2.ZERO
+			var outline: Array = entry["outline"]
+			for corner: Array in outline:
+				var p := lonlat_to_px(corner[0], corner[1])
+				polygon.append(p)
+				total += p
+			var bounds := Rect2(polygon[0], Vector2.ZERO)
+			for p in polygon:
+				bounds = bounds.expand(p)
+			var shoal := entry.duplicate()
+			shoal["polygon"] = polygon
+			shoal["bounds"] = bounds
+			shoal["centre"] = total / polygon.size()
+			_shoals.append(shoal)
+	return _shoals
+
+
+## The shoal under a point (the shallowest, if two overlap), or an empty dictionary.
+static func shoal_at(p: Vector2) -> Dictionary:
+	var found := {}
+	for shoal in shoals():
+		var bounds: Rect2 = shoal["bounds"]
+		if not bounds.has_point(p) or not Geometry2D.is_point_in_polygon(p, shoal["polygon"]):
+			continue
+		if found.is_empty() or float(shoal["depth"]) < float(found["depth"]):
+			found = shoal
+	return found
+
+
+## Depth of water at a point with the tide at this height: INF away from the shoals.
+static func depth_at(p: Vector2, tide_height: float) -> float:
+	var shoal := shoal_at(p)
+	if shoal.is_empty():
+		return INF
+	return Shoals.depth_m(shoal["depth"], tide_height)
+
+
+## The name of the first shoal along a line that is too shallow for this
+## draught at this height of tide, or "" if she floats all the way.
+static func shoal_on_segment(a: Vector2, b: Vector2, draught: float, tide_height: float, step: float = 60.0) -> String:
+	var steps := maxi(1, int(ceil(a.distance_to(b) / step)))
+	for i in steps + 1:
+		var shoal := shoal_at(a.lerp(b, float(i) / steps))
+		if not shoal.is_empty() and not Shoals.can_float(Shoals.depth_m(shoal["depth"], tide_height), draught):
+			return shoal["name"]
+	return ""
+
+
 # --- Pilot routes ------------------------------------------------------------
 
 static func _cell_centre(cell: Vector2i) -> Vector2:
 	return (Vector2(cell) + Vector2(0.5, 0.5)) * GRID_CELL
 
 
-static func _pilot_grid() -> AStarGrid2D:
-	if _grid != null:
-		return _grid
-	_grid = AStarGrid2D.new()
-	_grid.region = Rect2i(0, 0, int(ceil(SIZE.x / GRID_CELL)), int(ceil(SIZE.y / GRID_CELL)))
-	_grid.cell_size = Vector2(GRID_CELL, GRID_CELL)
-	_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
-	_grid.update()
+## The grid a pilot plans on for a ship of this draught: land is closed to
+## her, and so is every shoal she could not cross at low water.
+static func _pilot_grid(draught: float) -> AStarGrid2D:
+	var key := snappedf(draught, 0.1)
+	if _grids.has(key):
+		return _grids[key]
+	var grid := AStarGrid2D.new()
+	grid.region = Rect2i(0, 0, int(ceil(SIZE.x / GRID_CELL)), int(ceil(SIZE.y / GRID_CELL)))
+	grid.cell_size = Vector2(GRID_CELL, GRID_CELL)
+	grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	grid.update()
 	var offsets: Array[Vector2] = [Vector2.ZERO, Vector2(PILOT_CLEARANCE, 0), Vector2(-PILOT_CLEARANCE, 0),
 		Vector2(0, PILOT_CLEARANCE), Vector2(0, -PILOT_CLEARANCE)]
-	for x in _grid.region.size.x:
-		for y in _grid.region.size.y:
+	for x in grid.region.size.x:
+		for y in grid.region.size.y:
 			var centre := _cell_centre(Vector2i(x, y))
+			var closed := draught > 0.0 and not Shoals.can_float(depth_at(centre, 0.0), draught)
 			for offset in offsets:
-				if is_blocked(centre + offset):
-					_grid.set_point_solid(Vector2i(x, y), true)
+				if closed:
 					break
-	return _grid
+				closed = is_blocked(centre + offset)
+			if closed:
+				grid.set_point_solid(Vector2i(x, y), true)
+	_grids[key] = grid
+	return grid
 
 
 ## The open-water grid cell nearest to a point.
-static func _open_cell_near(p: Vector2) -> Vector2i:
-	var grid := _pilot_grid()
+static func _open_cell_near(grid: AStarGrid2D, p: Vector2) -> Vector2i:
 	var home := Vector2i(int(p.x / GRID_CELL), int(p.y / GRID_CELL))
 	var best := home
 	var best_distance := INF
@@ -355,33 +421,49 @@ static func _open_cell_near(p: Vector2) -> Vector2i:
 	return best
 
 
-## A safe course between two ports that keeps clear of the land: the port
+static func _pilot_cells(from_port: String, to_port: String, draught: float) -> Array[Vector2i]:
+	var grid := _pilot_grid(draught)
+	return grid.get_id_path(_open_cell_near(grid, port_position(from_port)), _open_cell_near(grid, port_position(to_port)))
+
+
+## True if a ship of this draught can get from one port to the other at low
+## water without crossing a shoal too shallow for her.
+static func has_pilot_route(from_port: String, to_port: String, draught: float) -> bool:
+	return not _pilot_cells(from_port, to_port, draught).is_empty()
+
+
+## A safe course between two ports that keeps clear of the land, and of any
+## shoal too shallow at low water for a ship of this draught: the port
 ## positions at each end and the turning points between them. It ignores the
-## wind, so it is a starting point for a plan, not the fastest course.
-static func pilot_route(from_port: String, to_port: String) -> Array[Vector2]:
-	var key := "%s>%s" % [from_port, to_port]
-	if _routes.has(key):
-		var cached: Array[Vector2] = []
-		cached.assign(_routes[key])
-		return cached
-	var start := port_position(from_port)
-	var finish := port_position(to_port)
-	var raw: Array[Vector2] = [start]
-	for cell in _pilot_grid().get_id_path(_open_cell_near(start), _open_cell_near(finish)):
-		raw.append(_cell_centre(cell))
-	raw.append(finish)
-	# Keep only the corners: from each point, skip ahead to the furthest one in clear sight.
-	var route: Array[Vector2] = [start]
-	var i := 0
-	while i < raw.size() - 1:
-		var j := raw.size() - 1
-		while j > i + 1 and segment_crosses_land(raw[i], raw[j], 100.0):
-			j -= 1
-		route.append(raw[j])
-		i = j
-	_routes[key] = route
+## wind, so it is a starting point for a plan, not the fastest course. If
+## there is no such course for her draught, the course for a ship of no
+## draught is given instead.
+static func pilot_route(from_port: String, to_port: String, draught: float = 0.0) -> Array[Vector2]:
+	var key := "%s>%s@%.1f" % [from_port, to_port, draught]
+	if not _routes.has(key):
+		var cells := _pilot_cells(from_port, to_port, draught)
+		if cells.is_empty() and draught > 0.0:
+			_routes[key] = pilot_route(from_port, to_port, 0.0)
+		else:
+			var start := port_position(from_port)
+			var finish := port_position(to_port)
+			var raw: Array[Vector2] = [start]
+			for cell in cells:
+				raw.append(_cell_centre(cell))
+			raw.append(finish)
+			# Keep only the corners: from each point, skip ahead to the furthest one in clear sight.
+			var route: Array[Vector2] = [start]
+			var i := 0
+			while i < raw.size() - 1:
+				var j := raw.size() - 1
+				while j > i + 1 and (segment_crosses_land(raw[i], raw[j], 100.0)
+						or (draught > 0.0 and shoal_on_segment(raw[i], raw[j], draught, 0.0, 100.0) != "")):
+					j -= 1
+				route.append(raw[j])
+				i = j
+			_routes[key] = route
 	var result: Array[Vector2] = []
-	result.assign(route)
+	result.assign(_routes[key])
 	return result
 
 

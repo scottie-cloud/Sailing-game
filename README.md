@@ -32,6 +32,14 @@ Built with [Godot 4.3](https://godotengine.org/download).
 - Sound: wind that rises with the breeze, water along the hull that grows
   with speed, a sail that shakes when it is not drawing, rain in a squall and
   a bell on arrival. A "Sound" button under sail switches it off.
+- Shallow water: the sands inside the Heads, the Prince George Bank, the
+  Swan Bay flats and the bar at Point Henry. Every ship has a draught, deeper
+  when loaded, and the tide puts up to 0.9 m more water over a shoal. A ship
+  too deep for the water runs aground. The cutter crosses the sands; the
+  ketch needs the tide; the schooner keeps to the channels and can only
+  reach Geelong on the tide with part of a cargo. The chart colours each
+  shoal for your ship, and the pilot's course keeps clear of the ones she
+  cannot cross.
 - A Pause button under sail.
 - A trim bar above the speed panel: a green band shows where the sail sets
   well and slides as the heading or wind changes; keep the white marker in it.
@@ -94,6 +102,8 @@ godot --headless --path . -s tests/smoke_test.gd
 | Ports (name, real position, premium) | `data/ports.gd` |
 | Cargoes (price, where sold, where wanted) | `data/goods.gd` |
 | Place names and lighthouses on the chart | `data/chart_features.gd` |
+| Shoals: where they are and how deep | `data/shoals.gd` |
+| How draught, depth and tide decide who floats | `sim/shoals.gd` |
 | Charters and their stories | `data/charters.gd` |
 | Ships and upgrades | `data/ships.gd` |
 | How prices, charters and upgrades work | `sim/trade.gd`, `sim/market.gd`, `sim/contracts.gd`, `sim/shipyard.gd` |
@@ -139,8 +149,9 @@ true size.
 
 Place names and lighthouses are in `data/chart_features.gd`. Their positions
 and dates were set down from general knowledge, not taken from a chart or a
-source, and should be checked before being relied on. Depths, shoals and
-channels are not shown yet.
+source, and should be checked before being relied on. The same goes for
+the shoals in `data/shoals.gd`: they put the sands and channels in roughly
+the right places, with round-number depths, and are not a chart.
 
 ## Planned stages
 

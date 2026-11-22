@@ -5,6 +5,8 @@ extends Control
 
 const SailingModel = preload("res://sim/sailing_model.gd")
 const World = preload("res://game/world.gd")
+const Shoals = preload("res://sim/shoals.gd")
+const Tide = preload("res://sim/tide.gd")
 
 const BAR_HEIGHT := 112.0
 const Palette = preload("res://game/palette.gd")
@@ -88,7 +90,7 @@ func clear() -> void:
 
 ## Replace the plan with the pilot's safe course around the land.
 func use_pilot() -> void:
-	game.follow_track(World.pilot_route(game.current_port, game.destination))
+	game.follow_track(game.pilot_route())
 	refresh()
 
 
@@ -153,6 +155,24 @@ func _draw() -> void:
 	for i in range(0, triangles.size(), 3):
 		draw_colored_polygon(PackedVector2Array([to_screen(triangles[i]), to_screen(triangles[i + 1]), to_screen(triangles[i + 2])]), LAND_FILL)
 
+	# Shoals, coloured by whether this ship, loaded as she is, can cross them:
+	# sand at any tide, amber only with enough tide, red not at all.
+	var draws: float = game.draught()
+	for shoal: Dictionary in World.shoals():
+		var outline := PackedVector2Array()
+		for point: Vector2 in shoal["polygon"]:
+			outline.append(to_screen(point))
+		var standing := Shoals.passage(shoal["depth"], draws, Tide.RANGE_M)
+		var tint := Palette.SHOAL
+		if standing == Shoals.Passage.ON_THE_TIDE:
+			tint = Palette.SHOAL_ON_TIDE
+		elif standing == Shoals.Passage.NEVER:
+			tint = Palette.SHOAL_TOO_SHALLOW
+		draw_colored_polygon(outline, Color(tint, 0.45))
+		outline.append(outline[0])
+		draw_polyline(outline, Color(tint, 0.9), 1.5)
+		draw_string(font, to_screen(shoal["centre"]) + Vector2(-80, 4), "%.1f m" % float(shoal["depth"]), HORIZONTAL_ALIGNMENT_CENTER, 160, 13, Color.WHITE)
+
 	# Names of the main waters and districts, and every light.
 	for place: Dictionary in World.PLACES:
 		if int(place["rank"]) > 1:
@@ -164,7 +184,7 @@ func _draw() -> void:
 		var at := to_screen(World.feature_position(light))
 		draw_circle(at, 4.5, Color.WHITE)
 		draw_circle(at, 2.5, GOLD)
-	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0), "Coastline: GSHHG. Lights shown as gold dots.",
+	draw_string(font, Vector2(map_rect.position.x + 8.0, map_rect.end.y - 8.0), "Coastline: GSHHG. Gold dots: lights. Shoals: depth at low water; amber needs the tide, red is too shallow for her.",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.6))
 
 	# Wind arrows across the open water.
@@ -229,6 +249,9 @@ func _draw() -> void:
 		if leg["crosses_land"]:
 			colour = LAND_LEG
 			label = "crosses land"
+		elif leg["shoal"] != "":
+			colour = LAND_LEG
+			label = "too shallow"
 		elif leg["direct"]:
 			var speed: float = leg["speed_kn"]
 			colour = SLOW_LEG.lerp(FAST_LEG, clampf(inverse_lerp(0.4, 1.0, speed / best), 0.0, 1.0))

@@ -14,6 +14,7 @@ const Shipyard = preload("res://sim/shipyard.gd")
 const Market = preload("res://sim/market.gd")
 const Contracts = preload("res://sim/contracts.gd")
 const SoundMix = preload("res://sim/sound_mix.gd")
+const Shoals = preload("res://sim/shoals.gd")
 const World = preload("res://game/world.gd")
 
 const NORTH := 0.0
@@ -53,6 +54,7 @@ func _init() -> void:
 	test_data()
 	test_sound_mix()
 	test_chart()
+	test_shallow_water()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -616,3 +618,81 @@ func test_chart() -> void:
 	check(lights_ok and World.LIGHTS.size() >= 5, "every light is on the chart with a year and a note")
 	check(World.light_label({"name": "Point Lonsdale", "year": 1863}) == "Point Lonsdale Light (1863)", "a light is labelled with its name and year")
 	check(World.light_label({"name": "Eastern Light", "year": 1883}) == "Eastern Light (1883)", "a name that already says Light is left alone")
+
+
+func test_shallow_water() -> void:
+	# The rules.
+	check(near(Shoals.draught_m(1.4, 0.3, 0.0), 1.4) and near(Shoals.draught_m(1.4, 0.3, 1.0), 1.7) and near(Shoals.draught_m(1.4, 0.3, 0.5), 1.55), "cargo makes her sit deeper")
+	check(near(Shoals.depth_m(2.0, 0.6), 2.6), "the tide adds to the water over a shoal")
+	check(Shoals.can_float(2.1, 2.0) and not Shoals.can_float(2.0, 2.0) and not Shoals.can_float(1.5, 2.0), "she needs more water than she draws")
+	check(Shoals.passage(2.0, 1.7, 0.9) == Shoals.Passage.ALWAYS, "a shallow ship crosses a shoal at any tide")
+	check(Shoals.passage(2.0, 2.5, 0.9) == Shoals.Passage.ON_THE_TIDE, "a deeper ship needs the tide")
+	check(Shoals.passage(2.0, 3.2, 0.9) == Shoals.Passage.NEVER, "a deep ship cannot cross at all")
+	check(near(Tide.height_m(0.0), 0.0) and near(Tide.height_m(Tide.CYCLE_HOURS / 2.0), Tide.RANGE_M), "the water rises from low to high over half a cycle")
+	check(Tide.height_m(Tide.CYCLE_HOURS / 4.0) > Tide.height_m(Tide.CYCLE_HOURS / 8.0) and Tide.phase(Tide.CYCLE_HOURS / 8.0) > 0.0, "the water rises while the tide floods")
+	check(Tide.height_m(Tide.CYCLE_HOURS * 0.75) < Tide.height_m(Tide.CYCLE_HOURS * 0.6) and Tide.phase(Tide.CYCLE_HOURS * 0.6) < 0.0, "and falls while it ebbs")
+
+	# The ships: each bigger one sits deeper, light and laden.
+	var deeper := true
+	var last := 0.0
+	for id in Shipyard.SHIP_ORDER:
+		deeper = deeper and Shipyard.draught_m(id, 0.0) > last and Shipyard.draught_m(id, 1.0) > Shipyard.draught_m(id, 0.0)
+		last = Shipyard.draught_m(id, 0.0)
+	check(deeper, "bigger ships draw more, and every ship draws more when loaded")
+
+	# The shoals on the chart.
+	var shoals_ok := true
+	var named := {}
+	for shoal: Dictionary in World.shoals():
+		var polygon: PackedVector2Array = shoal["polygon"]
+		named[shoal["name"]] = shoal
+		shoals_ok = shoals_ok and polygon.size() >= 3 and float(shoal["depth"]) > 0.0 and shoal["note"] != ""
+		for corner in polygon:
+			shoals_ok = shoals_ok and World.in_bounds(corner)
+		shoals_ok = shoals_ok and Geometry2D.is_point_in_polygon(shoal["centre"], polygon)
+	check(shoals_ok and World.shoals().size() >= 4, "every shoal has an outline on the chart, a depth and a note")
+	var ports_clear := true
+	for port: String in World.PORTS:
+		ports_clear = ports_clear and World.shoal_at(World.port_position(port)).is_empty()
+	check(ports_clear, "no port sits on a shoal")
+	check(World.shoal_at(Vector2(11000, 6000)).is_empty() and World.depth_at(Vector2(11000, 6000), 0.0) == INF, "the middle of the bay is deep")
+	var on_sand: Vector2 = World.lonlat_to_px(144.775, -38.225)
+	check(World.shoal_at(on_sand).get("name", "") == "West Sand" and not World.is_blocked(on_sand), "the West Sand is water, and shallow")
+	check(near(World.depth_at(on_sand, 0.5), 2.5), "the depth over a shoal follows the tide")
+
+	# Who can cross what.
+	var cutter := Shipyard.draught_m("cutter", 1.0)
+	var ketch := Shipyard.draught_m("ketch", 1.0)
+	var schooner := Shipyard.draught_m("schooner", 1.0)
+	var across_sand: Vector2 = World.lonlat_to_px(144.80, -38.24)
+	check(World.shoal_on_segment(on_sand, across_sand, cutter, 0.0) == "", "a loaded cutter crosses the sands at low water")
+	check(World.shoal_on_segment(on_sand, across_sand, ketch, 0.0) == "West Sand", "a loaded ketch does not")
+	check(World.shoal_on_segment(on_sand, across_sand, ketch, Tide.RANGE_M) == "", "but she can at high water")
+	check(World.shoal_on_segment(on_sand, across_sand, schooner, Tide.RANGE_M) == "West Sand", "a loaded schooner cannot at any tide")
+	check(World.shoal_on_segment(Vector2(11000, 5000), Vector2(12000, 7000), schooner, 0.0) == "", "deep water stops nobody")
+
+	# The pilot keeps a deep ship in the channels.
+	var deep_ok := true
+	for from_port: String in ["melbourne", "queenscliff", "mornington", "barwon"]:
+		for to_port: String in ["melbourne", "queenscliff", "mornington", "barwon"]:
+			if from_port == to_port:
+				continue
+			deep_ok = deep_ok and World.has_pilot_route(from_port, to_port, schooner)
+			var route := World.pilot_route(from_port, to_port, schooner)
+			for i in range(1, route.size()):
+				deep_ok = deep_ok and World.shoal_on_segment(route[i - 1], route[i], schooner, 0.0, 100.0) == ""
+				deep_ok = deep_ok and not World.segment_crosses_land(route[i - 1], route[i], 100.0)
+	check(deep_ok, "a loaded schooner has a channel between every port but Geelong, clear of the sands at low water")
+	var shallow_way := World.route_length_nm(World.pilot_route("queenscliff", "mornington", cutter))
+	var deep_way := World.route_length_nm(World.pilot_route("queenscliff", "mornington", schooner))
+	check(deep_way > shallow_way + 0.5, "the deep ship's way round the sands is longer than the cutter's way over them")
+
+	# Geelong lies behind the Point Henry bar.
+	check(World.has_pilot_route("melbourne", "geelong", cutter) and World.has_pilot_route("melbourne", "geelong", ketch), "the cutter and the ketch reach Geelong at any tide")
+	check(not World.has_pilot_route("melbourne", "geelong", schooner), "a loaded schooner cannot reach Geelong at low water")
+	check(not World.has_pilot_route("melbourne", "geelong", Shipyard.draught_m("schooner", 0.0)), "nor can an empty one")
+	var bar: Dictionary = named["Point Henry bar"]
+	check(Shoals.passage(bar["depth"], Shipyard.draught_m("schooner", 0.0), Tide.RANGE_M) == Shoals.Passage.ON_THE_TIDE, "an empty schooner crosses the bar on the tide")
+	check(Shoals.passage(bar["depth"], schooner, Tide.RANGE_M) == Shoals.Passage.NEVER, "a full one cannot: she must lighten her load")
+	check(Shoals.passage(bar["depth"], Shipyard.draught_m("schooner", 0.5), Tide.RANGE_M) == Shoals.Passage.ON_THE_TIDE, "half loaded, she can cross near high water")
+	check(World.pilot_route("melbourne", "geelong", schooner) == World.pilot_route("melbourne", "geelong", 0.0), "with no safe way, the pilot gives the ordinary course")

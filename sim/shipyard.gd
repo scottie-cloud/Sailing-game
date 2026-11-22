@@ -4,6 +4,7 @@ extends RefCounted
 ## but turns more slowly; upgrades carry over when you change ship.
 
 const Ships = preload("res://data/ships.gd")
+const Shoals = preload("res://sim/shoals.gd")
 const SHIPS: Dictionary = Ships.SHIPS
 const SHIP_ORDER: Array[String] = Ships.SHIP_ORDER
 const UPGRADES: Dictionary = Ships.UPGRADES
@@ -46,6 +47,13 @@ static func leeway_factor(keel_level: int) -> float:
 static func strain_limit_s(ship_id: String, rigging_level: int) -> float:
 	var base: float = SHIPS[ship_id]["strain_limit"]
 	return base * (1.0 + RIGGING_BONUS_PER_LEVEL * rigging_level)
+
+
+## How deep she sits, in metres, with this fraction of her hold full.
+static func draught_m(ship_id: String, load_fraction: float) -> float:
+	var light: float = SHIPS[ship_id]["draught"]
+	var laden: float = SHIPS[ship_id]["laden"]
+	return Shoals.draught_m(light, laden, load_fraction)
 
 
 static func turn_factor(ship_id: String) -> float:
